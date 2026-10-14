@@ -37,6 +37,7 @@ export class GameScene extends Phaser.Scene {
   private hoop!: Hoop;
   private levelIndex = 0;
   private won = false;
+  private paused = false;
   private stuckTimer = 0;
   private overlayText!: Phaser.GameObjects.Text;
 
@@ -49,6 +50,7 @@ export class GameScene extends Phaser.Scene {
     // Сцена перезапускается через scene.restart() на том же экземпляре —
     // сбрасываем флаги, иначе после победы и R мяч не засчитывается в кольцо.
     this.won = false;
+    this.paused = false;
     this.stuckTimer = 0;
     const level = LEVELS[this.levelIndex];
     const { width, height } = this.scale;
@@ -69,9 +71,21 @@ export class GameScene extends Phaser.Scene {
       this.registry.set('level', 0);
       this.scene.restart();
     });
+    // Esc / P — пауза: мяч останавливается, на экране появляется надпись «Пауза».
+    this.input.keyboard.on('keydown-ESC', () => this.togglePause());
+    this.input.keyboard.on('keydown-P', () => this.togglePause());
+  }
+
+  /** Переключает паузу: останавливает мяч и показывает/скрывает надпись «Пауза». */
+  private togglePause(): void {
+    this.paused = !this.paused;
+    this.overlayText
+      .setText(this.paused ? 'Пауза' : '')
+      .setVisible(this.paused);
   }
 
   update(_time: number, delta: number): void {
+    if (this.paused) return;
     Matter.Engine.update(
       (this.matter.world as unknown as { engine: unknown }).engine,
       delta,
@@ -149,7 +163,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.add
-      .text(width / 2, 12, 'ЛКМ на мяче — рогатка · R — заново', {
+      .text(width / 2, 12, 'ЛКМ - кинуть мяч · R — заново · Esc/P — пауза', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '15px',
         color: '#cbd5e1',
