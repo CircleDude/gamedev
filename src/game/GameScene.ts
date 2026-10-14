@@ -1,20 +1,23 @@
 import Phaser from 'phaser';
+import { Terrain, TERRAIN_TOP } from './Terrain';
+import { Excavator, TRACKS_OFFSET } from './Excavator';
 
-const PLAYER_SPEED = 260;
+const TREASURE_COUNT = 3;
+const HUD_HEIGHT = 44;
 
 /**
- * Минимальная рабочая сцена курса.
- *
- * Здесь намеренно почти нет "игры": квадрат двигается, круг можно собирать,
- * растёт счёт. Задача студента — превратить этот каркас в собственную игру.
+ * 2D-симулятор экскаватора.
+ * Игрок управляет экскаватором стрелками, копает землю и ищет сокровища.
  */
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.GameObjects.Rectangle;
-  private target!: Phaser.GameObjects.Arc;
+  private terrain!: Terrain;
+  private excavator!: Excavator;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
   private scoreText!: Phaser.GameObjects.Text;
-  private score = 0;
+  private winText!: Phaser.GameObjects.Text;
+  private treasuresFound = 0;
+  private won = false;
+  private digParticleTimer = 0;
 
   constructor() {
     super('GameScene');
@@ -23,86 +26,94 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     const { width, height } = this.scale;
 
-    this.add
-      .text(width / 2, 28, 'GAME DEV STARTER', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '28px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5, 0);
+    this.terrain = new Terrain(this, TREASURE_COUNT);
+    this.terrain.onTreasureFound = () => this.onTreasureFound();
 
-    this.add
-      .text(width / 2, 68, 'Стрелки / WASD — движение. Остальное придумай сам.', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '18px',
-        color: '#cbd5e1',
-      })
-      .setOrigin(0.5, 0);
+    const startX = width / 2;
+    const startY = this.terrain.getSupportY(startX, TERRAIN_TOP) - TRACKS_OFFSET;
+    this.excavator = new Excavator(this, startX, startY);
 
-    this.player = this.add.rectangle(width / 2, height / 2, 42, 42, 0x38bdf8);
-    this.target = this.add.circle(width * 0.72, height * 0.52, 18, 0xfacc15);
-
-    this.scoreText = this.add.text(24, height - 48, 'Score: 0', {
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '22px',
-      color: '#ffffff',
-    });
+    this.createHud(width, height);
 
     if (!this.input.keyboard) {
       throw new Error('Keyboard input is unavailable.');
     }
-
     this.cursors = this.input.keyboard.createCursorKeys();
-    this.wasd = this.input.keyboard.addKeys({
-      up: Phaser.Input.Keyboard.KeyCodes.W,
-      down: Phaser.Input.Keyboard.KeyCodes.S,
-      left: Phaser.Input.Keyboard.KeyCodes.A,
-      right: Phaser.Input.Keyboard.KeyCodes.D,
-    }) as Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
+    this.input.keyboard.on('keydown-R', () => this.scene.restart());
   }
 
   update(_time: number, delta: number): void {
-    const seconds = delta / 1000;
-    let dx = 0;
-    let dy = 0;
+    if (this.won) return;
 
-    if (this.cursors.left.isDown || this.wasd.left.isDown) dx -= 1;
-    if (this.cursors.right.isDown || this.wasd.right.isDown) dx += 1;
-    if (this.cursors.up.isDown || this.wasd.up.isDown) dy -= 1;
-    if (this.cursors.down.isDown || this.wasd.down.isDown) dy += 1;
+    this.excavator.update(delta, this.cursors, this.terrain);
 
-    if (dx !== 0 || dy !== 0) {
-      const length = Math.hypot(dx, dy);
-      this.player.x += (dx / length) * PLAYER_SPEED * seconds;
-      this.player.y += (dy / length) * PLAYER_SPEED * seconds;
+    if (this.cursors.down.isDown) {
+      this.excavator.dig(this.terrain, delta);
+      this.spawnDigParticles(delta);
     }
 
-    this.keepPlayerOnScreen();
-    this.checkTarget();
+    this.terrain.update();
   }
 
-  private keepPlayerOnScreen(): void {
-    const half = this.player.width / 2;
-    this.player.x = Phaser.Math.Clamp(this.player.x, half, this.scale.width - half);
-    this.player.y = Phaser.Math.Clamp(this.player.y, 110 + half, this.scale.height - half);
+  private createHud(width: number, height: number): void {
+    this.add.rectangle(width / 2, 0, width, HUD_HEIGHT, 0x0f172a, 0.85).setOrigin(0.5, 0);
+
+    this.scoreText = this.add.text(24, 12, `Сокровища: 0/${this.terrain.getTotalTreasures()}`, {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '18px',
+      color: '#ffffff',
+    });
+
+    this.add
+      .text(width / 2, 12, '← → — движение · ↓ — копать · ↑ — поднять ковш · R — заново', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '16px',
+        color: '#cbd5e1',
+      })
+      .setOrigin(0.5, 0);
+
+    this.winText = this.add
+      .text(width / 2, height / 2, 'ПОБЕДА! Все сокровища найдены.\nНажми R, чтобы начать заново.', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '28px',
+        color: '#ffffff',
+        align: 'center',
+        backgroundColor: '#0f172a',
+        padding: { x: 20, y: 16 },
+      })
+      .setOrigin(0.5)
+      .setVisible(false);
   }
 
-  private checkTarget(): void {
-    const distance = Phaser.Math.Distance.Between(
-      this.player.x,
-      this.player.y,
-      this.target.x,
-      this.target.y,
+  private onTreasureFound(): void {
+    this.treasuresFound++;
+    this.scoreText.setText(`Сокровища: ${this.treasuresFound}/${this.terrain.getTotalTreasures()}`);
+
+    if (this.treasuresFound >= this.terrain.getTotalTreasures()) {
+      this.won = true;
+      this.winText.setVisible(true);
+    }
+  }
+
+  private spawnDigParticles(delta: number): void {
+    this.digParticleTimer -= delta;
+    if (this.digParticleTimer > 0) return;
+    this.digParticleTimer = 60;
+
+    const { x, y } = this.excavator.getBucketWorldPosition();
+    const particle = this.add.rectangle(
+      x + Phaser.Math.Between(-8, 8),
+      y + Phaser.Math.Between(-8, 8),
+      5,
+      5,
+      0x8b5a2b,
     );
-
-    if (distance > 42) return;
-
-    this.score += 1;
-    this.scoreText.setText(`Score: ${this.score}`);
-
-    this.target.setPosition(
-      Phaser.Math.Between(60, this.scale.width - 60),
-      Phaser.Math.Between(140, this.scale.height - 80),
-    );
+    this.tweens.add({
+      targets: particle,
+      alpha: 0,
+      scale: 0.3,
+      duration: 350,
+      onComplete: () => particle.destroy(),
+    });
   }
 }
