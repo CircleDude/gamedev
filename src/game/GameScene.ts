@@ -5,7 +5,6 @@ import {
   FLOOR_Y,
   GRAVITY_Y,
   LEVELS,
-  PHASE2_DELAY_MS,
   PHASE2_GRAVITY_SCALE,
   WALL_RESTITUTION,
   WALL_FRICTION,
@@ -41,7 +40,6 @@ export class GameScene extends Phaser.Scene {
   private won = false;
   private paused = false;
   private phase2 = false;
-  private phase2Elapsed = 0;
   private stuckTimer = 0;
   private overlayText!: Phaser.GameObjects.Text;
   private phaseText!: Phaser.GameObjects.Text;
@@ -57,7 +55,6 @@ export class GameScene extends Phaser.Scene {
     this.won = false;
     this.paused = false;
     this.phase2 = false;
-    this.phase2Elapsed = 0;
     this.stuckTimer = 0;
     const level = LEVELS[this.levelIndex];
     const { width, height } = this.scale;
@@ -69,6 +66,12 @@ export class GameScene extends Phaser.Scene {
     this.createLevelObjects(level);
     this.createHud(level);
     this.createZoneVisual(level);
+
+    // Фаза 2 начинается после прохождения 1 уровня — со 2-го уровня и далее.
+    // При рестарте по R (level 0) фаза снова отключена.
+    if (this.levelIndex >= 1) {
+      this.startPhase2();
+    }
 
     if (!this.input.keyboard) {
       throw new Error('Keyboard input is unavailable.');
@@ -109,13 +112,6 @@ export class GameScene extends Phaser.Scene {
     this.ball.update(delta);
     if (this.won) return;
 
-    // Таймер фазы 2: идёт только в реальном времени, на паузе не тикает.
-    if (!this.phase2) {
-      this.phase2Elapsed += delta;
-      if (this.phase2Elapsed >= PHASE2_DELAY_MS) {
-        this.startPhase2();
-      }
-    }
     this.hoop.update(delta);
 
     const x = this.ball.getX();

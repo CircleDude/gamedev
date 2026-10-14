@@ -28,7 +28,6 @@ export const MAX_DRAG = 170; // px — длина оттяжки для полн
 export const MAX_LAUNCH_SPEED = 1100; // px/s — скорость броска при полной оттяжке
 
 // --- Фаза 2 ---
-export const PHASE2_DELAY_MS = 15_000; // фаза 2 начинается через 15 с после старта уровня
 export const PHASE2_GRAVITY_SCALE = 1.5; // во сколько раз уменьшается гравитация в фазе 2
 export const HOOP_ROTATION_SPEED = 0.5; // рад/с — скорость вращения кольца вокруг центра в фазе 2
 
