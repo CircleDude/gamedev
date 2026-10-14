@@ -5,6 +5,8 @@ import {
   FLOOR_Y,
   GRAVITY_Y,
   LEVELS,
+  PHASE2_DELAY_MS,
+  PHASE2_GRAVITY_SCALE,
   WALL_RESTITUTION,
   WALL_FRICTION,
   type LevelConfig,
@@ -38,8 +40,11 @@ export class GameScene extends Phaser.Scene {
   private levelIndex = 0;
   private won = false;
   private paused = false;
+  private phase2 = false;
+  private phase2Elapsed = 0;
   private stuckTimer = 0;
   private overlayText!: Phaser.GameObjects.Text;
+  private phaseText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('GameScene');
@@ -51,6 +56,8 @@ export class GameScene extends Phaser.Scene {
     // сбрасываем флаги, иначе после победы и R мяч не засчитывается в кольцо.
     this.won = false;
     this.paused = false;
+    this.phase2 = false;
+    this.phase2Elapsed = 0;
     this.stuckTimer = 0;
     const level = LEVELS[this.levelIndex];
     const { width, height } = this.scale;
@@ -85,6 +92,14 @@ export class GameScene extends Phaser.Scene {
       .setVisible(this.paused);
   }
 
+  /** Начинает фазу 2: надпись, вращение кольца и пониженная гравитация. */
+  private startPhase2(): void {
+    this.phase2 = true;
+    this.hoop.setRotating(true);
+    this.matter.world.setGravity(0, GRAVITY_Y / PHASE2_GRAVITY_SCALE);
+    this.phaseText.setVisible(true);
+  }
+
   update(_time: number, delta: number): void {
     if (this.paused) return;
     Matter.Engine.update(
@@ -93,6 +108,15 @@ export class GameScene extends Phaser.Scene {
     );
     this.ball.update(delta);
     if (this.won) return;
+
+    // Таймер фазы 2: идёт только в реальном времени, на паузе не тикает.
+    if (!this.phase2) {
+      this.phase2Elapsed += delta;
+      if (this.phase2Elapsed >= PHASE2_DELAY_MS) {
+        this.startPhase2();
+      }
+    }
+    this.hoop.update(delta);
 
     const x = this.ball.getX();
     const y = this.ball.getY();
@@ -181,6 +205,17 @@ export class GameScene extends Phaser.Scene {
         padding: { x: 20, y: 16 },
       })
       .setOrigin(0.5)
+      .setVisible(false);
+
+    // Бейдж фазы: появляется при старте фазы 2.
+    this.phaseText = this.add
+      .text(width - 16, 12, 'ФАЗА 2', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#fb923c',
+      })
+      .setOrigin(1, 0)
       .setVisible(false);
   }
 
