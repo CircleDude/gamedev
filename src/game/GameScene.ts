@@ -76,9 +76,10 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-P', () => this.togglePause());
   }
 
-  /** Переключает паузу: останавливает мяч и показывает/скрывает надпись «Пауза». */
+  /** Переключает паузу: останавливает мяч, блокирует управление и показывает надпись «Пауза». */
   private togglePause(): void {
     this.paused = !this.paused;
+    this.ball.setPaused(this.paused);
     this.overlayText
       .setText(this.paused ? 'Пауза' : '')
       .setVisible(this.paused);

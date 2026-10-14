@@ -67,6 +67,7 @@ export class Ball {
   private readonly zone: ControlZone;
 
   private grabbed = false;
+  private paused = false;
   private anchorX = 0;
   private anchorY = 0;
   private dragX = 0;
@@ -129,8 +130,16 @@ export class Ball {
     this.drawBall();
   }
 
+  /** Блокирует/разблокирует управление мячом (пауза). */
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    if (paused && this.grabbed) {
+      this.cancelGrab();
+    }
+  }
+
   private tryGrab(pointer: Phaser.Input.Pointer): void {
-    if (this.grabbed) return;
+    if (this.paused || this.grabbed) return;
     if (!pointer.leftButtonDown()) return;
     // Курсор должен быть внутри зоны управления
     if (!this.isPointInZone(pointer.worldX, pointer.worldY)) return;
@@ -180,6 +189,14 @@ export class Ball {
       Matter.Body.setAngularVelocity(this.sprite.body, 0);
       this.showLaunchArrow(dx / len, dy / len, power);
     }
+    this.band.clear();
+    this.drawBall();
+  }
+
+  /** Отменяет захват без броска (например, при паузе). */
+  private cancelGrab(): void {
+    this.grabbed = false;
+    Matter.Body.setStatic(this.sprite.body, false);
     this.band.clear();
     this.drawBall();
   }
