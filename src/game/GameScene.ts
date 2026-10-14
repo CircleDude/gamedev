@@ -1,79 +1,163 @@
 import Phaser from 'phaser';
-import { Terrain, TERRAIN_TOP } from './Terrain';
-import { Excavator, TRACKS_OFFSET } from './Excavator';
-
-const TREASURE_COUNT = 3;
-const HUD_HEIGHT = 44;
+import { Ball } from './Ball';
+import { Hoop } from './Hoop';
+import {
+  FLOOR_Y,
+  GRAVITY_Y,
+  LEVELS,
+  WALL_RESTITUTION,
+  WALL_FRICTION,
+  type LevelConfig,
+} from './constants';
 
 /**
- * 2D-симулятор экскаватора.
- * Игрок управляет экскаватором стрелками, копает землю и ищет сокровища.
+ * Модуль MatterJS (в рантайме Phaser.Physics.Matter.Matter, в типах не описан).
+ * Runner Phaser 4 передаёт в движок время в неверных единицах (физика ускоряется),
+ * поэтому шагаем движок вручную с реальной дельтой кадра.
+ */
+const Matter = (
+  Phaser.Physics.Matter as unknown as {
+    Matter: {
+      Engine: { update(engine: unknown, delta: number): void };
+    };
+  }
+).Matter;
+
+const HUD_HEIGHT = 44;
+const STUCK_TIMEOUT = 4000; // мс — автосброс мяча, если он застрял вне зоны
+const STUCK_SPEED = 20; // px/s — ниже этой скорости мяч считается «застрявшим»
+
+/**
+ * Игра «Баскетбольный мяч».
+ * Физика Matter: гравитация, упругость, трение (мяч закручивается при качении).
+ * Управление только мышью: ЛКМ на мяче — «рогатка». Цель — забить мяч в кольцо.
  */
 export class GameScene extends Phaser.Scene {
-  private terrain!: Terrain;
-  private excavator!: Excavator;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private scoreText!: Phaser.GameObjects.Text;
-  private winText!: Phaser.GameObjects.Text;
-  private treasuresFound = 0;
+  private ball!: Ball;
+  private hoop!: Hoop;
+  private levelIndex = 0;
   private won = false;
-  private digParticleTimer = 0;
+  private stuckTimer = 0;
+  private overlayText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('GameScene');
   }
 
   create(): void {
+    this.levelIndex = this.registry.get('level') ?? 0;
+    // Сцена перезапускается через scene.restart() на том же экземпляре —
+    // сбрасываем флаги, иначе после победы и R мяч не засчитывается в кольцо.
+    this.won = false;
+    this.stuckTimer = 0;
+    const level = LEVELS[this.levelIndex];
     const { width, height } = this.scale;
 
-    this.terrain = new Terrain(this, TREASURE_COUNT);
-    this.terrain.onTreasureFound = () => this.onTreasureFound();
-
-    const startX = width / 2;
-    const startY = this.terrain.getSupportY(startX, TERRAIN_TOP) - TRACKS_OFFSET;
-    this.excavator = new Excavator(this, startX, startY);
-
-    this.createHud(width, height);
+    this.matter.world.setGravity(0, GRAVITY_Y);
+    // Отключаем автообновление мира: шагаем движок сами в update().
+    (this.matter.world as unknown as { autoUpdate: boolean }).autoUpdate = false;
+    this.createArenaBounds();
+    this.createLevelObjects(level);
+    this.createHud(level);
+    this.createZoneVisual(level);
 
     if (!this.input.keyboard) {
       throw new Error('Keyboard input is unavailable.');
     }
-    this.cursors = this.input.keyboard.createCursorKeys();
-    this.input.keyboard.on('keydown-R', () => this.scene.restart());
+    // R — начать игру заново с первого уровня.
+    this.input.keyboard.on('keydown-R', () => {
+      this.registry.set('level', 0);
+      this.scene.restart();
+    });
   }
 
   update(_time: number, delta: number): void {
+    Matter.Engine.update(
+      (this.matter.world as unknown as { engine: unknown }).engine,
+      delta,
+    );
+    this.ball.update(delta);
     if (this.won) return;
 
-    this.excavator.update(delta, this.cursors, this.terrain);
-
-    if (this.cursors.down.isDown) {
-      this.excavator.dig(this.terrain, delta);
-      this.spawnDigParticles(delta);
+    const x = this.ball.getX();
+    const y = this.ball.getY();
+    if (this.hoop.score(x, y, this.ball.getVelocityY())) {
+      this.onScore();
+      return;
     }
-
-    this.terrain.update();
+    this.checkStuck(delta, x, y);
   }
 
-  private createHud(width: number, height: number): void {
+  /** Упругие границы арены: пол, потолок, левая и правая стены. */
+  private createArenaBounds(): void {
+    const { width, height } = this.scale;
+    const opts = { isStatic: true, restitution: WALL_RESTITUTION, friction: WALL_FRICTION };
+    const t = 80; // толщина невидимых стен
+
+    // Пол (верхняя кромка — FLOOR_Y)
+    this.matter.add.rectangle(
+      width / 2,
+      (FLOOR_Y + height + t) / 2,
+      width + t * 2,
+      height - FLOOR_Y + t,
+      opts,
+    );
+    // Потолок
+    this.matter.add.rectangle(width / 2, -t / 2, width + t * 2, t, opts);
+    // Левая и правая стены
+    this.matter.add.rectangle(-t / 2, height / 2, t, height + t * 2, opts);
+    this.matter.add.rectangle(width + t / 2, height / 2, t, height + t * 2, opts);
+  }
+
+  private createLevelObjects(level: LevelConfig): void {
+    this.hoop = new Hoop(this, level.hoop);
+    this.hoop.reset();
+
+    const opts = { isStatic: true, restitution: WALL_RESTITUTION, friction: WALL_FRICTION };
+    for (const wall of level.walls) {
+      const angle = Phaser.Math.DegToRad(wall.angle);
+      this.matter.add.rectangle(wall.x, wall.y, wall.width, wall.length, { ...opts, angle });
+      this.add
+        .rectangle(wall.x, wall.y, wall.width, wall.length, 0x475569)
+        .setStrokeStyle(2, 0x1e293b)
+        .setRotation(angle);
+    }
+
+    this.ball = new Ball(this, level.ballSpawn.x, level.ballSpawn.y, level.zone);
+  }
+
+  private createZoneVisual(level: LevelConfig): void {
+    const { x, y, width, height } = level.zone;
+    this.add
+      .rectangle(x + width / 2, y + height / 2, width, height, 0x38bdf8, 0.05)
+      .setStrokeStyle(2, 0x38bdf8, 0.4);
+    this.add.text(x + 8, y + 6, 'Зона управления', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '13px',
+      color: '#7dd3fc',
+    });
+  }
+
+  private createHud(level: LevelConfig): void {
+    const { width, height } = this.scale;
     this.add.rectangle(width / 2, 0, width, HUD_HEIGHT, 0x0f172a, 0.85).setOrigin(0.5, 0);
 
-    this.scoreText = this.add.text(24, 12, `Сокровища: 0/${this.terrain.getTotalTreasures()}`, {
+    this.add.text(16, 12, `Уровень ${this.levelIndex + 1}/${LEVELS.length}`, {
       fontFamily: 'system-ui, sans-serif',
       fontSize: '18px',
       color: '#ffffff',
     });
 
     this.add
-      .text(width / 2, 12, '← → — движение · ↓ — копать · ↑ — поднять ковш · R — заново', {
+      .text(width / 2, 12, 'ЛКМ на мяче — рогатка · R — заново', {
         fontFamily: 'system-ui, sans-serif',
-        fontSize: '16px',
+        fontSize: '15px',
         color: '#cbd5e1',
       })
       .setOrigin(0.5, 0);
 
-    this.winText = this.add
-      .text(width / 2, height / 2, 'ПОБЕДА! Все сокровища найдены.\nНажми R, чтобы начать заново.', {
+    this.overlayText = this.add
+      .text(width / 2, height / 2, '', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '28px',
         color: '#ffffff',
@@ -85,35 +169,35 @@ export class GameScene extends Phaser.Scene {
       .setVisible(false);
   }
 
-  private onTreasureFound(): void {
-    this.treasuresFound++;
-    this.scoreText.setText(`Сокровища: ${this.treasuresFound}/${this.terrain.getTotalTreasures()}`);
-
-    if (this.treasuresFound >= this.terrain.getTotalTreasures()) {
+  private onScore(): void {
+    if (this.levelIndex < LEVELS.length - 1) {
+      this.registry.set('level', this.levelIndex + 1);
+      this.scene.restart();
+    } else {
       this.won = true;
-      this.winText.setVisible(true);
+      this.overlayText
+        .setText('ВСЕ УРОВНИ ПРОЙДЕНЫ!\nНажми R, чтобы сыграть ещё раз.')
+        .setVisible(true);
     }
   }
 
-  private spawnDigParticles(delta: number): void {
-    this.digParticleTimer -= delta;
-    if (this.digParticleTimer > 0) return;
-    this.digParticleTimer = 60;
+  /** Если мяч укатился из зоны и почти остановился — вернуть на старт. */
+  private checkStuck(delta: number, x: number, y: number): void {
+    const level = LEVELS[this.levelIndex];
+    const inZone =
+      x >= level.zone.x &&
+      x <= level.zone.x + level.zone.width &&
+      y >= level.zone.y &&
+      y <= level.zone.y + level.zone.height;
 
-    const { x, y } = this.excavator.getBucketWorldPosition();
-    const particle = this.add.rectangle(
-      x + Phaser.Math.Between(-8, 8),
-      y + Phaser.Math.Between(-8, 8),
-      5,
-      5,
-      0x8b5a2b,
-    );
-    this.tweens.add({
-      targets: particle,
-      alpha: 0,
-      scale: 0.3,
-      duration: 350,
-      onComplete: () => particle.destroy(),
-    });
+    if (!inZone && this.ball.getSpeed() < STUCK_SPEED) {
+      this.stuckTimer += delta;
+      if (this.stuckTimer >= STUCK_TIMEOUT) {
+        this.stuckTimer = 0;
+        this.ball.reset(level.ballSpawn.x, level.ballSpawn.y);
+      }
+    } else {
+      this.stuckTimer = 0;
+    }
   }
 }
