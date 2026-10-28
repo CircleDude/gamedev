@@ -28,6 +28,13 @@ const HUD_HEIGHT = 44;
 const STUCK_TIMEOUT = 4000; // мс — автосброс мяча, если он застрял вне зоны
 const STUCK_SPEED = 20; // px/s — ниже этой скорости мяч считается «застрявшим»
 
+// Пунктирная парабола-подсказка на 1-м уровне: как бросить мяч, чтобы попасть в кольцо.
+const HINT_START = { x: 300, y: 293 }; // старт — мяч на спавне в зоне управления
+const HINT_CTRL = { x: 520, y: 60 }; // контрольная точка дуги Безье (высокий навес)
+const HINT_END = { x: 760, y: 460 }; // финиш — точка внутри корзины
+const HINT_DASH = 12; // длина штриха пунктира, px
+const HINT_GAP = 8; // длина промежутка пунктира, px
+
 /**
  * Игра «Баскетбольный мяч».
  * Физика Matter: гравитация, упругость, трение (мяч закручивается при качении).
@@ -63,13 +70,17 @@ export class GameScene extends Phaser.Scene {
     // Отключаем автообновление мира: шагаем движок сами в update().
     (this.matter.world as unknown as { autoUpdate: boolean }).autoUpdate = false;
     this.createArenaBounds();
+    // Подсказка-траектория только на 1-м уровне; рисуем до объектов уровня, чтобы она осталась на фоне.
+    if (this.levelIndex === 0) {
+      this.drawHintTrajectory();
+    }
     this.createLevelObjects(level);
     this.createHud(level);
     this.createZoneVisual(level);
 
-    // Фаза 2 начинается после прохождения 1 уровня — со 2-го уровня и далее.
+    // Фаза 2 начинается с 6-го уровня (levelIndex = 5) и действует до конца игры.
     // При рестарте по R (level 0) фаза снова отключена.
-    if (this.levelIndex >= 1) {
+    if (this.levelIndex >= 5) {
       this.startPhase2();
     }
 
@@ -142,6 +153,57 @@ export class GameScene extends Phaser.Scene {
     // Левая и правая стены
     this.matter.add.rectangle(-t / 2, height / 2, t, height + t * 2, opts);
     this.matter.add.rectangle(width + t / 2, height / 2, t, height + t * 2, opts);
+  }
+
+  /** Пунктирная парабола-подсказка: из зоны управления в корзину (только 1-й уровень). */
+  private drawHintTrajectory(): void {
+    const g = this.add.graphics();
+    const SEGMENTS = 64;
+
+    // Квадратичная кривая Безье: HINT_START → HINT_CTRL → HINT_END.
+    const pts: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i <= SEGMENTS; i++) {
+      const t = i / SEGMENTS;
+      const mt = 1 - t;
+      pts.push({
+        x: mt * mt * HINT_START.x + 2 * mt * t * HINT_CTRL.x + t * t * HINT_END.x,
+        y: mt * mt * HINT_START.y + 2 * mt * t * HINT_CTRL.y + t * t * HINT_END.y,
+      });
+    }
+
+    // Длины сегментов ломаной и накопленное смещение начала каждого сегмента.
+    const segLens: number[] = [];
+    const offsets: number[] = [0];
+    for (let i = 1; i < pts.length; i++) {
+      const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      segLens.push(len);
+      offsets.push(offsets[i - 1] + len);
+    }
+    const total = offsets[offsets.length - 1];
+    const period = HINT_DASH + HINT_GAP;
+
+    g.lineStyle(2, 0xffffff, 0.35);
+    for (let dashFrom = 0; dashFrom < total - 1; dashFrom += period) {
+      const dashTo = Math.min(dashFrom + HINT_DASH, total);
+      let start: { x: number; y: number } | null = null;
+      let end: { x: number; y: number } | null = null;
+      for (let i = 0; i < segLens.length; i++) {
+        const s0 = offsets[i];
+        const s1 = offsets[i + 1];
+        if (dashTo <= s0 || dashFrom >= s1) continue;
+        const lo = Math.max(dashFrom, s0);
+        const hi = Math.min(dashTo, s1);
+        const x0 = Phaser.Math.Linear(pts[i].x, pts[i + 1].x, (lo - s0) / segLens[i]);
+        const y0 = Phaser.Math.Linear(pts[i].y, pts[i + 1].y, (lo - s0) / segLens[i]);
+        const x1 = Phaser.Math.Linear(pts[i].x, pts[i + 1].x, (hi - s0) / segLens[i]);
+        const y1 = Phaser.Math.Linear(pts[i].y, pts[i + 1].y, (hi - s0) / segLens[i]);
+        if (!start) start = { x: x0, y: y0 };
+        end = { x: x1, y: y1 };
+      }
+      if (start && end) {
+        g.lineBetween(start.x, start.y, end.x, end.y);
+      }
+    }
   }
 
   private createLevelObjects(level: LevelConfig): void {
