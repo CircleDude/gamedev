@@ -6,6 +6,7 @@ import {
   GRAVITY_Y,
   LEVELS,
   PHASE2_GRAVITY_SCALE,
+  BALL_RESTING_THRESH,
   WALL_RESTITUTION,
   WALL_FRICTION,
   type LevelConfig,
@@ -20,13 +21,12 @@ const Matter = (
   Phaser.Physics.Matter as unknown as {
     Matter: {
       Engine: { update(engine: unknown, delta: number): void };
+      Resolver: { _restingThresh: number };
     };
   }
 ).Matter;
 
 const HUD_HEIGHT = 44;
-const STUCK_TIMEOUT = 4000; // мс — автосброс мяча, если он застрял вне зоны
-const STUCK_SPEED = 20; // px/s — ниже этой скорости мяч считается «застрявшим»
 
 // Пунктирная парабола-подсказка на 1-м уровне: как бросить мяч, чтобы попасть в кольцо.
 const HINT_START = { x: 300, y: 293 }; // старт — мяч на спавне в зоне управления
@@ -47,7 +47,6 @@ export class GameScene extends Phaser.Scene {
   private won = false;
   private paused = false;
   private phase2 = false;
-  private stuckTimer = 0;
   private overlayText!: Phaser.GameObjects.Text;
   private phaseText!: Phaser.GameObjects.Text;
 
@@ -62,13 +61,14 @@ export class GameScene extends Phaser.Scene {
     this.won = false;
     this.paused = false;
     this.phase2 = false;
-    this.stuckTimer = 0;
     const level = LEVELS[this.levelIndex];
     const { width, height } = this.scale;
 
     this.matter.world.setGravity(0, GRAVITY_Y);
     // Отключаем автообновление мира: шагаем движок сами в update().
     (this.matter.world as unknown as { autoUpdate: boolean }).autoUpdate = false;
+    // Разрешаем мелкие отскоки: стандартный порог Matter (~4) заставляет мяч «прилипать».
+    Matter.Resolver._restingThresh = BALL_RESTING_THRESH;
     this.createArenaBounds();
     // Подсказка-траектория только на 1-м уровне; рисуем до объектов уровня, чтобы она осталась на фоне.
     if (this.levelIndex === 0) {
@@ -131,7 +131,6 @@ export class GameScene extends Phaser.Scene {
       this.onScore();
       return;
     }
-    this.checkStuck(delta, x, y);
   }
 
   /** Упругие границы арены: пол, потолок, левая и правая стены. */
@@ -289,23 +288,4 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Если мяч укатился из зоны и почти остановился — вернуть на старт. */
-  private checkStuck(delta: number, x: number, y: number): void {
-    const level = LEVELS[this.levelIndex];
-    const inZone =
-      x >= level.zone.x &&
-      x <= level.zone.x + level.zone.width &&
-      y >= level.zone.y &&
-      y <= level.zone.y + level.zone.height;
-
-    if (!inZone && this.ball.getSpeed() < STUCK_SPEED) {
-      this.stuckTimer += delta;
-      if (this.stuckTimer >= STUCK_TIMEOUT) {
-        this.stuckTimer = 0;
-        this.ball.reset(level.ballSpawn.x, level.ballSpawn.y);
-      }
-    } else {
-      this.stuckTimer = 0;
-    }
-  }
 }

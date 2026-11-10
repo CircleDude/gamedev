@@ -11,11 +11,12 @@ export const FLOOR_Y = 560; // верхняя кромка пола
 // --- Физика ---
 export const GRAVITY_Y = 1; // гравитация Matter (scale 0.001) ≈ 1000 px/s²
 export const BALL_RADIUS = 18;
-export const BALL_RESTITUTION = 0.75; // упругость мяча (отскок)
-export const BALL_FRICTION = 0.1; // трение мяча о поверхности — как у мяча на паркете (Matter default)
-export const BALL_FRICTION_AIR = 0.002; // сопротивление воздуха
-export const WALL_RESTITUTION = 0.7; // упругость пола, стен и кольца
-export const WALL_FRICTION = 0.1;
+export const BALL_RESTITUTION = 0.86; // упругость мяча (отскок) — как у настоящего баскетбольного
+export const BALL_FRICTION = 0.4; // трение мяча о поверхности — как у мяча на паркете
+export const BALL_FRICTION_AIR = 0.001; // сопротивление воздуха
+export const WALL_RESTITUTION = 0.8; // упругость пола, стен и кольца
+export const WALL_FRICTION = 0.25;
+export const BALL_RESTING_THRESH = 0.5; // порог скорости (px/тик), ниже которого Matter не отскакивает (default: 4)
 
 // --- Скорость мяча ---
 export const MAX_SPEED = 1200; // px/s — мягкий предел скорости мяча
