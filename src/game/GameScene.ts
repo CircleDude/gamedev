@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Ball } from './Ball';
 import { Hoop } from './Hoop';
+import { BALL_SKINS, getNextBallSkinId } from './ballSkins';
 import {
   FLOOR_Y,
   GRAVITY_Y,
@@ -56,6 +57,16 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.levelIndex = this.registry.get('level') ?? 0;
+    // Восстанавливаем выбранный скин мяча (одноразово, при старте игры).
+    if (this.registry.get('ballSkin') === undefined) {
+      let saved: string | null = null;
+      try {
+        saved = localStorage.getItem('ballSkin');
+      } catch {
+        // localStorage недоступен — используем скин по умолчанию
+      }
+      this.registry.set('ballSkin', saved ?? BALL_SKINS[0].id);
+    }
     // Сцена перезапускается через scene.restart() на том же экземпляре —
     // сбрасываем флаги, иначе после победы и R мяч не засчитывается в кольцо.
     this.won = false;
@@ -95,6 +106,21 @@ export class GameScene extends Phaser.Scene {
     // Esc / P — пауза: мяч останавливается, на экране появляется надпись «Пауза».
     this.input.keyboard.on('keydown-ESC', () => this.togglePause());
     this.input.keyboard.on('keydown-P', () => this.togglePause());
+    // C — сменить скин мяча по кругу.
+    this.input.keyboard.on('keydown-C', () => this.cycleBallSkin());
+  }
+
+  /** Меняет скин мяча по кругу; выбор сохраняется в localStorage. */
+  private cycleBallSkin(): void {
+    const current = (this.registry.get('ballSkin') as string) ?? BALL_SKINS[0].id;
+    const next = getNextBallSkinId(current);
+    this.registry.set('ballSkin', next);
+    try {
+      localStorage.setItem('ballSkin', next);
+    } catch {
+      // localStorage недоступен — скин просто не сохранится между запусками
+    }
+    this.scene.restart();
   }
 
   /** Переключает паузу: останавливает мяч, блокирует управление и показывает надпись «Пауза». */

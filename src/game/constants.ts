@@ -12,16 +12,21 @@ export const FLOOR_Y = 560; // верхняя кромка пола
 export const GRAVITY_Y = 1; // гравитация Matter (scale 0.001) ≈ 1000 px/s²
 export const BALL_RADIUS = 18;
 export const BALL_RESTITUTION = 0.86; // упругость мяча (отскок) — как у настоящего баскетбольного
-export const BALL_FRICTION = 0.4; // трение мяча о поверхности — как у мяча на паркете
+export const BALL_FRICTION = 0.8; // трение мяча о поверхности — как у мяча на паркете
 export const BALL_FRICTION_AIR = 0.001; // сопротивление воздуха
 export const WALL_RESTITUTION = 0.8; // упругость пола, стен и кольца
-export const WALL_FRICTION = 0.25;
+export const WALL_FRICTION = 0.5;
 export const BALL_RESTING_THRESH = 0.5; // порог скорости (px/тик), ниже которого Matter не отскакивает (default: 4)
 
 // --- Скорость мяча ---
 export const MAX_SPEED = 1200; // px/s — мягкий предел скорости мяча
 // Matter хранит скорость в px за 1/60с; чтобы задать px/s, делим на 60.
 export const MATTER_VELOCITY_SCALE = 1 / 60;
+
+// --- Визуальное сжатие мяча при ударах ---
+export const BALL_SQUASH_MAX = 0.9; // максимальная деформация (доля от размера)
+export const BALL_SQUASH_MS = 200;//140; // длительность сжатия, мс
+export const BALL_SQUASH_SPEED = 1500; // px/s — скорость удара, при которой сжатие полное
 
 // --- Рогатка ---
 export const GRAB_RADIUS = BALL_RADIUS + 14; // радиус захвата мяча курсором
