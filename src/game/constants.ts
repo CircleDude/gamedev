@@ -55,5 +55,35 @@ export const LAUNCH_ANIM_MS = 130; // анимация удара резинки
 export const PHASE2_GRAVITY_SCALE = 3; // во сколько раз уменьшается гравитация в фазе 2
 export const HOOP_ROTATION_SPEED = 0.5; // рад/с — скорость вращения кольца вокруг центра в фазе 2
 
+// --- Звёзды ---
+export const STAR_POINTS = 5; // число лучей звезды
+export const STAR_OUTER_RADIUS = 16; // px — радиус вершины луча (в игре)
+export const STAR_INNER_RADIUS = 7; // px — радиус впадины между лучами
+export const STAR_TOUCH_RADIUS = 36; // px — расстояние центр-центр для касания мячом
+export const STAR_FILL_COLOR = 0xfacc15; // жёлтая звезда (yellow-400)
+export const STAR_EDGE_COLOR = 0xa16207; // контур жёлтой звезды (yellow-700)
+export const STAR_SILHOUETTE_COLOR = 0xffffff; // белый силуэт собранной звезды
+export const STAR_SILHOUETTE_ALPHA = 0.35; // прозрачность силуэта
+export const STAR_SILHOUETTE_EDGE_ALPHA = 0.6; // прозрачность контура силуэта
+export const STAR_SPARK_COLOR = 0xfde68a; // цвет искр-полосок (amber-200)
+export const STAR_SPARK_SIZE = { w: 4, h: 14 }; // размер искры-полоски, px
+export const STAR_SPARK_COUNT_BRIGHT = 14; // искр при первом касании звезды
+export const STAR_SPARK_COUNT_DIM = 6; // искр при повторном касании уже собранной
+export const STAR_SPARK_LIFETIME = 420; // мс жизни искры
+export const STAR_SPARK_MIN_DIST = 28; // px — минимальный разлёт искры
+export const STAR_SPARK_MAX_DIST = 64; // px — максимальный разлёт искры
+export const STAR_LEVITATE_MS = 1600; // период левитации (масштаб туда-обратно)
+export const STAR_LEVITATE_SCALE = 0.12; // амплитуда левитации (доля масштаба)
+export const STAR_POP_IN_MS = 280; // длительность появления scale 0→1, мс
+export const STAR_PULSE_MS = 260; // длительность пульса при повторном касании, мс
+export const STAR_PULSE_SCALE = 1.3; // масштаб в пике пульса
+// Мелкие звёзды: плитки экрана выбора уровней и экран победы
+export const STAR_TILE_RADIUS = 9; // px — радиус звезды
+export const STAR_TILE_INNER_RADIUS = 4; // px — впадина между лучами
+export const STAR_TILE_SPACING = 26; // px — шаг между звёздами в ряду
+export const STAR_TILE_UNCOLLECTED_COLOR = 0x94a3b8; // обводка несобранной (slate-400)
+export const WIN_STARS_OFFSET_Y = 46; // px — отступ ряда звёзд победного экрана от заголовка
+export const WIN_STARS_TEXT_OFFSET_Y = 22; // px — отступ текста «N/M» под рядом звёзд
+
 // Типы уровней (ControlZone, HoopConfig, WallConfig, LevelConfig) и массив LEVELS
 // живут в levels.ts — здесь только числовые параметры физики и геометрии.

@@ -95,6 +95,8 @@ export class Ball {
   private readonly zone: ControlZone;
   /** Опциональный фильтр захвата (см. конструктор). */
   private readonly grabGuard?: (x: number, y: number) => boolean;
+  /** Опциональный callback захвата мяча рогаткой — натягивания резинки (см. конструктор). */
+  private readonly onGrab?: () => void;
   /** Текущий скин — резинка рисуется в его цветах. */
   private readonly skin: BallSkin;
   /** Кулак-спрайт: тот же depth, что у резинки, но добавлен после неё. */
@@ -140,7 +142,9 @@ export class Ball {
   /**
    * grabGuard — опциональная проверка точки нажатия перед захватом мяча
    * (вернуть false, чтобы клик не захватил мяч, например над кнопками меню).
-   * Без аргумента поведение идентично прежнему.
+   * onGrab — опциональный callback захвата мяча (начало натягивания резинки) —
+   * используется, например, для сброса звёзд до броска.
+   * Без аргументов поведение идентично прежнему.
    */
   constructor(
     scene: Phaser.Scene,
@@ -148,10 +152,12 @@ export class Ball {
     y: number,
     zone: ControlZone,
     grabGuard?: (x: number, y: number) => boolean,
+    onGrab?: () => void,
   ) {
     this.scene = scene;
     this.zone = zone;
     this.grabGuard = grabGuard;
+    this.onGrab = onGrab;
 
     const skinId = (scene.registry.get('ballSkin') as string | undefined) ?? BALL_SKINS[0].id;
     this.skin = getBallSkin(skinId);
@@ -271,6 +277,7 @@ export class Ball {
     Matter.Body.setAngularVelocity(this.bodySprite.body, 0);
 
     this.grabbed = true;
+    this.onGrab?.();
     this.anchorX = x;
     this.anchorY = y;
     this.dragX = x;

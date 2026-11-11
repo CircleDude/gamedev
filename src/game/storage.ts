@@ -10,10 +10,13 @@ const SKIN_KEY = 'ballSkin'; // ключ уже использовался в и
 const SETTINGS_KEY = 'basketSettings';
 
 export interface ProgressData {
-  version: 1; // на случай будущих миграций
+  version: 2;
   unlocked: number; // сколько уровней открыто (индекс max + 1), старт: 1
   last: number; // последний открытый/запускавшийся уровень, старт: 0
   completed: boolean[]; // completed[i] = уровень i пройден
+  // stars[i] — битовая маска собранных звёзд уровня i: бит j = звезда j собрана.
+  // Пусто/отсутствует = ни одной звезды не собрано.
+  stars: number[];
 }
 
 export interface SettingsData {
@@ -21,33 +24,45 @@ export interface SettingsData {
   sound: { master: number };
 }
 
-const DEFAULT_PROGRESS: ProgressData = { version: 1, unlocked: 1, last: 0, completed: [] };
+const DEFAULT_PROGRESS: ProgressData = { version: 2, unlocked: 1, last: 0, completed: [], stars: [] };
 const DEFAULT_SETTINGS: SettingsData = { version: 1, sound: { master: 1 } };
 
-/** Читает прогресс; отсутствует или битый JSON → дефолт { unlocked: 1, last: 0, completed: [] }. */
+/** Читает прогресс; отсутствует или битый JSON → дефолт. version 1 мигрирует в 2 (звёзды обнуляются). */
 export function loadProgress(): ProgressData {
   try {
     const raw = localStorage.getItem(PROGRESS_KEY);
-    if (!raw) return { ...DEFAULT_PROGRESS, completed: [] };
-    const data = JSON.parse(raw) as Partial<ProgressData>;
+    if (!raw) return { ...DEFAULT_PROGRESS, stars: [] };
+    const data = JSON.parse(raw) as {
+      version?: number;
+      unlocked?: number;
+      last?: number;
+      completed?: unknown[];
+      stars?: unknown[];
+    };
     if (
-      data.version !== 1 ||
+      (data.version !== 1 && data.version !== 2) ||
       typeof data.unlocked !== 'number' ||
       typeof data.last !== 'number' ||
       !Array.isArray(data.completed)
     ) {
-      return { ...DEFAULT_PROGRESS, completed: [] };
+      return { ...DEFAULT_PROGRESS, stars: [] };
     }
     return {
-      version: 1,
+      version: 2,
       unlocked: data.unlocked,
       last: data.last,
       completed: data.completed.map(Boolean),
+      stars: Array.isArray(data.stars) ? data.stars.map((s) => (typeof s === 'number' ? s : 0)) : [],
     };
   } catch {
     // localStorage недоступен или данные повреждены — играем с чистого прогресса
-    return { ...DEFAULT_PROGRESS, completed: [] };
+    return { ...DEFAULT_PROGRESS, stars: [] };
   }
+}
+
+/** Битовая маска собранных звёзд уровня index (нет записи → 0). */
+export function loadLevelStars(index: number): number {
+  return loadProgress().stars[index] ?? 0;
 }
 
 /** Пишет прогресс целиком; сбой хранилища молча игнорируется. */
@@ -72,6 +87,17 @@ export function markLevelCompleted(index: number): void {
 export function setLastLevel(index: number): void {
   const progress = loadProgress();
   progress.last = index;
+  saveProgress(progress);
+}
+
+/**
+ * Отмечает звёзды уровня собранными: звезда[i] |= mask (бит j = звезда j).
+ * Только «накапливает» — собранные звёзды никогда не сбрасываются.
+ */
+export function recordStars(index: number, mask: number): void {
+  if (mask <= 0) return;
+  const progress = loadProgress();
+  progress.stars[index] = (progress.stars[index] ?? 0) | mask;
   saveProgress(progress);
 }
 

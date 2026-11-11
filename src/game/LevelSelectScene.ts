@@ -8,7 +8,8 @@ import Phaser from 'phaser';
 import { MenuButton } from './ui/MenuButton';
 import { GAME_WIDTH } from './constants';
 import { LEVELS } from './levels';
-import { loadProgress, setLastLevel } from './storage';
+import { loadProgress, loadLevelStars, setLastLevel } from './storage';
+import { drawStarRow } from './Star';
 
 const TITLE_TEXT = 'Выбор уровня';
 const TITLE_Y = 64;
@@ -77,10 +78,11 @@ export class LevelSelectScene extends Phaser.Scene {
     }
   }
 
-  /** Открытый уровень: кнопка с номером, клик → GameScene; пройденный — с галочкой. */
+  /** Открытый уровень: номер слева, звёзды по центру, клик → GameScene; пройденный — с галочкой. */
   private createUnlockedTile(index: number, x: number, y: number, done: boolean): void {
     new MenuButton(this, x, y, {
       label: `${index + 1}`,
+      labelOffsetX: -TILE_WIDTH / 2 + 16,
       width: TILE_WIDTH,
       height: TILE_HEIGHT,
       withPhysics: false,
@@ -90,6 +92,11 @@ export class LevelSelectScene extends Phaser.Scene {
         this.scene.start('GameScene');
       },
     });
+    // Звёзды уровня: собранная — закрашена, несобранная — только обводка.
+    const starCount = LEVELS[index].stars?.length ?? 0;
+    if (starCount > 0) {
+      drawStarRow(this, x + 8, y, starCount, loadLevelStars(index));
+    }
     if (done) {
       this.add
         .text(x + TILE_WIDTH / 2 - 16, y - TILE_HEIGHT / 2 + 10, '✓', {

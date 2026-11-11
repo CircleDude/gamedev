@@ -15,12 +15,14 @@ import { LEVELS, type LevelConfig } from './levels';
 import { applyLevelFeatures } from './levelFeatures';
 import { disableMatterAutoUpdate, stepMatterWorld, setRestingThresh } from './matterStep';
 import { createArenaBounds } from './arena';
-import { loadSkinId, markLevelCompleted, setLastLevel } from './storage';
+import { loadSkinId, loadLevelStars, markLevelCompleted, recordStars, setLastLevel } from './storage';
 import { MenuButton } from './ui/MenuButton';
+import { Star, countStars, drawStarRow } from './Star';
+import { WIN_STARS_OFFSET_Y, WIN_STARS_TEXT_OFFSET_Y } from './constants';
 
 // --- Финальный экран уровня (см. createWinScreen) ---
 const WIN_TITLE_OFFSET_Y = -150;
-const WIN_BUTTONS_START_OFFSET_Y = -60;
+const WIN_BUTTONS_START_OFFSET_Y = -20;
 const WIN_BUTTON_STEP = 70;
 const WIN_BUTTON_WIDTH = 280;
 const WIN_BUTTON_HEIGHT = 56;
@@ -41,6 +43,7 @@ const PAUSE_MENU_BUTTON_OFFSET_Y = 70;
 export class GameScene extends Phaser.Scene {
   private ball!: Ball;
   private hoop!: Hoop;
+  private stars: Star[] = [];
   private levelIndex = 0;
   private won = false;
   private paused = false;
@@ -140,6 +143,9 @@ export class GameScene extends Phaser.Scene {
 
     const x = this.ball.getX();
     const y = this.ball.getY();
+    for (const star of this.stars) {
+      star.checkTouch(x, y);
+    }
     if (this.hoop.score(x, y, this.ball.getVelocityY())) {
       this.onScore();
       return;
@@ -160,7 +166,39 @@ export class GameScene extends Phaser.Scene {
         .setRotation(angle);
     }
 
-    this.ball = new Ball(this, level.ballSpawn.x, level.ballSpawn.y, level.zone);
+    // Звёзды уровня: до мяча, чтобы мяч рисовался поверх них.
+    this.stars = [];
+    const starPositions = level.stars ?? [];
+    const savedMask = loadLevelStars(this.levelIndex);
+    for (let i = 0; i < starPositions.length; i++) {
+      const pos = starPositions[i];
+      this.stars.push(new Star(this, pos.x, pos.y, (savedMask & (1 << i)) !== 0));
+    }
+
+    this.ball = new Ball(
+      this,
+      level.ballSpawn.x,
+      level.ballSpawn.y,
+      level.zone,
+      undefined,
+      () => this.resetPendingStars(),
+    );
+  }
+
+  /** Битовая маска звёзд, коснувшихся мячом в текущем полёте (ещё не засчитанных). */
+  private pendingStarMask(): number {
+    let mask = 0;
+    for (let i = 0; i < this.stars.length; i++) {
+      if (this.stars[i].isPending()) mask |= 1 << i;
+    }
+    return mask;
+  }
+
+  /** Захват мяча (натягивание резинки): «ожидающие» звёзды возвращаются в исходный вид. */
+  private resetPendingStars(): void {
+    for (const star of this.stars) {
+      star.resetPending();
+    }
   }
 
   private createZoneVisual(level: LevelConfig): void {
@@ -211,6 +249,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onScore(): void {
+    // Звёзды этого полёта засчитываются только при попадании в кольцо
+    // (recordStars накапливает: собранные звёзды не сбрасываются, см. storage.ts).
+    recordStars(this.levelIndex, this.pendingStarMask());
     // Прогресс: уровень пройден, следующий открыт, «Играть» в меню откроет следующий
     // (markLevelCompleted сам выставляет last = index + 1, см. storage.ts).
     markLevelCompleted(this.levelIndex);
@@ -237,6 +278,8 @@ export class GameScene extends Phaser.Scene {
         padding: { x: 20, y: 12 },
       })
       .setOrigin(0.5, 0.5);
+
+    this.createWinStars();
 
     let buttonY = height / 2 + WIN_BUTTONS_START_OFFSET_Y;
     if (!isLastLevel) {
@@ -268,4 +311,21 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** Ряд звёзд победного экрана: собранные — жёлтые, остальные — обводка. */
+  private createWinStars(): void {
+    const starPositions = LEVELS[this.levelIndex].stars;
+    if (!starPositions || starPositions.length === 0) return;
+    const { width, height } = this.scale;
+    const mask = loadLevelStars(this.levelIndex);
+    const titleY = height / 2 + WIN_TITLE_OFFSET_Y;
+    drawStarRow(this, width / 2, titleY + WIN_STARS_OFFSET_Y, starPositions.length, mask);
+    this.add
+      .text(width / 2, titleY + WIN_STARS_OFFSET_Y + WIN_STARS_TEXT_OFFSET_Y, `${countStars(mask)}/${starPositions.length}`, {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '16px',
+        fontStyle: 'bold',
+        color: '#fde68a',
+      })
+      .setOrigin(0.5, 0.5);
+  }
 }

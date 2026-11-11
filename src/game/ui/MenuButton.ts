@@ -21,6 +21,8 @@ export interface MenuButtonOptions {
   onClick?: () => void;
   /** Создавать статичное Matter-тело для отскока мяча (по умолчанию true). */
   withPhysics?: boolean;
+  /** Смещение лейбла по X от центра кнопки (например, номер уровня слева на плитке). */
+  labelOffsetX?: number;
 }
 
 export class MenuButton {
@@ -50,6 +52,7 @@ export class MenuButton {
       color: TEXT_COLOR,
     });
     text.setOrigin(0.5, 0.5);
+    text.x = options.labelOffsetX ?? 0;
 
     this.container = scene.add.container(x, y);
     this.container.add([this.bg, text]);
