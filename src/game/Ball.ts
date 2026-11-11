@@ -125,10 +125,15 @@ export class Ball {
     scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.tryGrab(pointer));
     scene.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onDrag(pointer));
     scene.input.on('pointerup', () => this.release());
+    // Отпускание рогатки за пределами canvas (курсор вышел за игровое поле).
+    scene.input.on('pointerupoutside', () => this.release());
     scene.matter.world.on('collisionstart', this.onCollisionStart, this);
 
+    // ВАЖНО: ссылку на мир берём заранее — при shutdown `scene.matter` уже null,
+    // и обращение к нему в callback ломает рестарт сцены (игра «зависает»).
+    const world = scene.matter.world;
     scene.events.once('shutdown', () => {
-      scene.matter.world.off('collisionstart', this.onCollisionStart, this);
+      world.off('collisionstart', this.onCollisionStart, this);
     });
   }
 

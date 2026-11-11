@@ -10,6 +10,11 @@ import {
   BALL_RESTING_THRESH,
   WALL_RESTITUTION,
   WALL_FRICTION,
+  WALL_COLOR,
+  WALL_EDGE_COLOR,
+  WALL_VISUAL_THICKNESS,
+  ZONE_COLOR,
+  ZONE_ALPHA,
   type LevelConfig,
 } from './constants';
 
@@ -27,7 +32,6 @@ const Matter = (
   }
 ).Matter;
 
-const HUD_HEIGHT = 44;
 
 // Пунктирная парабола-подсказка на 1-м уровне: как бросить мяч, чтобы попасть в кольцо.
 const HINT_START = { x: 300, y: 293 }; // старт — мяч на спавне в зоне управления
@@ -159,11 +163,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Упругие границы арены: пол, потолок, левая и правая стены. */
+  /** Упругие границы арены: пол, потолок, левая и правая стены (+ их видимые рамки). */
   private createArenaBounds(): void {
     const { width, height } = this.scale;
     const opts = { isStatic: true, restitution: WALL_RESTITUTION, friction: WALL_FRICTION };
     const t = 80; // толщина невидимых стен
+    const v = WALL_VISUAL_THICKNESS; // внутренние плоскости стен совпадают с нарисованной рамкой
 
     // Пол (верхняя кромка — FLOOR_Y)
     this.matter.add.rectangle(
@@ -173,11 +178,34 @@ export class GameScene extends Phaser.Scene {
       height - FLOOR_Y + t,
       opts,
     );
-    // Потолок
-    this.matter.add.rectangle(width / 2, -t / 2, width + t * 2, t, opts);
-    // Левая и правая стены
-    this.matter.add.rectangle(-t / 2, height / 2, t, height + t * 2, opts);
-    this.matter.add.rectangle(width + t / 2, height / 2, t, height + t * 2, opts);
+    // Потолок (нижняя кромка на y = v)
+    this.matter.add.rectangle(width / 2, v - t / 2, width + t * 2, t, opts);
+    // Левая стена (правая кромка на x = v) и правая (левая кромка на x = width - v)
+    this.matter.add.rectangle(v - t / 2, height / 2, t, height + t * 2, opts);
+    this.matter.add.rectangle(width - v + t / 2, height / 2, t, height + t * 2, opts);
+
+    this.drawArenaFrame(width, height);
+  }
+
+  /** Видимые стены: полоса пола, боковые стены, потолок и контур зоны управления. */
+  private drawArenaFrame(width: number, height: number): void {
+    const g = this.add.graphics();
+    const v = WALL_VISUAL_THICKNESS;
+
+    // Пол — заливка ниже кромки столкновения (FLOOR_Y)
+    g.fillStyle(WALL_COLOR, 1);
+    g.fillRect(0, FLOOR_Y, width, height - FLOOR_Y);
+
+    // Левая, правая стены и потолок — полосы внутри арены вдоль кромок столкновений
+    g.fillStyle(WALL_COLOR, 1);
+    g.fillRect(0, 0, v, FLOOR_Y);
+    g.fillRect(width - v, 0, v, FLOOR_Y);
+    g.fillRect(0, 0, width, v);
+
+    // Единая прямоугольная рамка по внутренним кромкам стен и пола
+    g.lineStyle(2, WALL_EDGE_COLOR, 1);
+    g.strokeRect(v, v, width - v * 2, FLOOR_Y - v);
+
   }
 
   /** Пунктирная парабола-подсказка: из зоны управления в корзину (только 1-й уровень). */
@@ -250,9 +278,10 @@ export class GameScene extends Phaser.Scene {
 
   private createZoneVisual(level: LevelConfig): void {
     const { x, y, width, height } = level.zone;
+    // Заливка зоны — светлый sky-400, контур — темнее по правилу скинов (ZONE_COLOR).
     this.add
       .rectangle(x + width / 2, y + height / 2, width, height, 0x38bdf8, 0.05)
-      .setStrokeStyle(2, 0x38bdf8, 0.4);
+      .setStrokeStyle(2, ZONE_COLOR, ZONE_ALPHA);
     this.add.text(x + 8, y + 6, 'Зона управления', {
       fontFamily: 'system-ui, sans-serif',
       fontSize: '13px',
@@ -260,23 +289,26 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** HUD в нижней полосе пола: уровень, управление, бейдж фазы. */
   private createHud(level: LevelConfig): void {
     const { width, height } = this.scale;
-    this.add.rectangle(width / 2, 0, width, HUD_HEIGHT, 0x0f172a, 0.85).setOrigin(0.5, 0);
-
-    this.add.text(16, 12, `Уровень ${this.levelIndex + 1}/${LEVELS.length}`, {
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '18px',
-      color: '#ffffff',
-    });
+    const midY = FLOOR_Y + (height - FLOOR_Y) / 2;
 
     this.add
-      .text(width / 2, 12, 'ЛКМ - кинуть мяч · R — заново · Esc/P — пауза', {
+      .text(16, midY, `Уровень ${this.levelIndex + 1}/${LEVELS.length}`, {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '18px',
+        color: '#ffffff',
+      })
+      .setOrigin(0, 0.5);
+
+    this.add
+      .text(width / 2, midY, 'ЛКМ — кинуть мяч · R — заново · Esc/P — пауза · C — скин', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '15px',
         color: '#cbd5e1',
       })
-      .setOrigin(0.5, 0);
+      .setOrigin(0.5, 0.5);
 
     this.overlayText = this.add
       .text(width / 2, height / 2, '', {
@@ -292,13 +324,13 @@ export class GameScene extends Phaser.Scene {
 
     // Бейдж фазы: появляется при старте фазы 2.
     this.phaseText = this.add
-      .text(width - 16, 12, 'ФАЗА 2', {
+      .text(width - 16, midY, 'ФАЗА 2', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '18px',
         fontStyle: 'bold',
         color: '#fb923c',
       })
-      .setOrigin(1, 0)
+      .setOrigin(1, 0.5)
       .setVisible(false);
   }
 

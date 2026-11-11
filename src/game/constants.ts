@@ -16,6 +16,14 @@ export const BALL_FRICTION = 0.8; // трение мяча о поверхнос
 export const BALL_FRICTION_AIR = 0.001; // сопротивление воздуха
 export const WALL_RESTITUTION = 0.8; // упругость пола, стен и кольца
 export const WALL_FRICTION = 0.5;
+
+// --- Видимые стены арены ---
+// Правило как у скинов мяча: контур — тот же цвет семьи, но на несколько ступеней темнее заливки.
+export const WALL_COLOR = 0x334155; // заливка видимых стен (slate-700)
+export const WALL_EDGE_COLOR = 0x020617; // контур стен (slate-950, темнее заливки)
+export const WALL_VISUAL_THICKNESS = 10; // видимая толщина боковых стен и потолка, px
+export const ZONE_COLOR = 0x0369a1; // контур зоны управления (sky-700, темнее заливки sky-400)
+export const ZONE_ALPHA = 0.6;
 export const BALL_RESTING_THRESH = 0.5; // порог скорости (px/тик), ниже которого Matter не отскакивает (default: 4)
 
 // --- Скорость мяча ---
@@ -25,7 +33,7 @@ export const MATTER_VELOCITY_SCALE = 1 / 60;
 
 // --- Визуальное сжатие мяча при ударах ---
 export const BALL_SQUASH_MAX = 0.9; // максимальная деформация (доля от размера)
-export const BALL_SQUASH_MS = 200;//140; // длительность сжатия, мс
+export const BALL_SQUASH_MS = 200; // длительность сжатия, мс
 export const BALL_SQUASH_SPEED = 1500; // px/s — скорость удара, при которой сжатие полное
 
 // --- Рогатка ---
