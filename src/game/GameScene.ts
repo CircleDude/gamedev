@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Ball } from './Ball';
 import { Hoop } from './Hoop';
-import { BALL_SKINS, getNextBallSkinId } from './ballSkins';
+import { BALL_SKINS } from './ballSkins';
 import {
   BALL_RESTING_THRESH,
   FLOOR_Y,
@@ -15,7 +15,7 @@ import { LEVELS, type LevelConfig } from './levels';
 import { applyLevelFeatures } from './levelFeatures';
 import { disableMatterAutoUpdate, stepMatterWorld, setRestingThresh } from './matterStep';
 import { createArenaBounds } from './arena';
-import { loadSkinId, markLevelCompleted, saveSkinId, setLastLevel } from './storage';
+import { loadSkinId, markLevelCompleted, setLastLevel } from './storage';
 import { MenuButton } from './ui/MenuButton';
 
 // --- Финальный экран уровня (см. createWinScreen) ---
@@ -24,6 +24,12 @@ const WIN_BUTTONS_START_OFFSET_Y = -60;
 const WIN_BUTTON_STEP = 70;
 const WIN_BUTTON_WIDTH = 280;
 const WIN_BUTTON_HEIGHT = 56;
+
+// --- Оверлей паузы (см. togglePause) ---
+const PAUSE_BUTTON_WIDTH = 240;
+const PAUSE_BUTTON_HEIGHT = 52;
+// Отступ кнопки «Главное меню» ниже надписи «Пауза».
+const PAUSE_MENU_BUTTON_OFFSET_Y = 70;
 
 /**
  * Игра «Баскетбольный мяч».
@@ -39,6 +45,7 @@ export class GameScene extends Phaser.Scene {
   private won = false;
   private paused = false;
   private overlayText!: Phaser.GameObjects.Text;
+  private pauseMenuButton: MenuButton | null = null;
 
   constructor() {
     super('GameScene');
@@ -58,7 +65,7 @@ export class GameScene extends Phaser.Scene {
       this.registry.set('ballSkin', loadSkinId() ?? BALL_SKINS[0].id);
     }
     // Сцена перезапускается через scene.restart() на том же экземпляре —
-    // сбрасываем флаги, иначе после победы и R мяч не засчитывается в кольцо.
+    // сбрасываем флаги, иначе после победы и повторного запуска мяч не засчитывается в кольцо.
     this.won = false;
     this.paused = false;
     const level = LEVELS[this.levelIndex];
@@ -81,25 +88,9 @@ export class GameScene extends Phaser.Scene {
     if (!this.input.keyboard) {
       throw new Error('Keyboard input is unavailable.');
     }
-    // R — начать игру заново с первого уровня.
-    this.input.keyboard.on('keydown-R', () => {
-      this.registry.set('level', 0);
-      this.scene.restart();
-    });
     // Esc / P — пауза: мяч останавливается, на экране появляется надпись «Пауза».
     this.input.keyboard.on('keydown-ESC', () => this.togglePause());
     this.input.keyboard.on('keydown-P', () => this.togglePause());
-    // C — сменить скин мяча по кругу.
-    this.input.keyboard.on('keydown-C', () => this.cycleBallSkin());
-  }
-
-  /** Меняет скин мяча по кругу; выбор сохраняется через storage. */
-  private cycleBallSkin(): void {
-    const current = (this.registry.get('ballSkin') as string) ?? BALL_SKINS[0].id;
-    const next = getNextBallSkinId(current);
-    this.registry.set('ballSkin', next);
-    saveSkinId(next);
-    this.scene.restart();
   }
 
   /** Переключает паузу: останавливает мяч, блокирует управление и показывает надпись «Пауза». */
@@ -109,6 +100,34 @@ export class GameScene extends Phaser.Scene {
     this.overlayText
       .setText(this.paused ? 'Пауза' : '')
       .setVisible(this.paused);
+    // Кнопка «Главное меню» видна только во время паузы.
+    if (this.paused) {
+      const { width, height } = this.scale;
+      this.pauseMenuButton = new MenuButton(this, width / 2, height / 2 + PAUSE_MENU_BUTTON_OFFSET_Y, {
+        label: 'Главное меню',
+        width: PAUSE_BUTTON_WIDTH,
+        height: PAUSE_BUTTON_HEIGHT,
+        withPhysics: false,
+        onClick: () => this.exitToMenu(),
+      });
+    } else if (this.pauseMenuButton) {
+      this.pauseMenuButton.container.destroy();
+      this.pauseMenuButton = null;
+    }
+  }
+
+  /** Выход в главное меню: снимаем паузу, чтобы игра не осталась замороженной. */
+  private exitToMenu(): void {
+    if (this.paused) {
+      this.paused = false;
+      this.ball.setPaused(false);
+      this.overlayText.setText('').setVisible(false);
+      if (this.pauseMenuButton) {
+        this.pauseMenuButton.container.destroy();
+        this.pauseMenuButton = null;
+      }
+    }
+    this.scene.start('MenuScene');
   }
 
   update(_time: number, delta: number): void {
@@ -171,7 +190,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0, 0.5);
 
     this.add
-      .text(width / 2, midY, 'ЛКМ — кинуть мяч · R — заново · Esc/P — пауза · C — скин', {
+      .text(width / 2, midY, 'ЛКМ — кинуть мяч · Esc/P — пауза', {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '15px',
         color: '#cbd5e1',

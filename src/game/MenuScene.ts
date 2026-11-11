@@ -16,20 +16,26 @@ import {
   BALL_RADIUS,
   BALL_RESTING_THRESH,
   FLOOR_Y,
+  GAME_HEIGHT,
   GAME_WIDTH,
   GRAVITY_Y,
 } from './constants';
 
 const TITLE_TEXT = 'Баскетбольный мяч';
-const TITLE_Y = 64;
+const TITLE_Y = 85;
 const BUTTON_WIDTH = 260;
 const BUTTON_HEIGHT = 56;
 const BUTTON_X = GAME_WIDTH / 2;
-const FIRST_BUTTON_Y = 130;
 const BUTTON_STEP = 78; // расстояние между центрами кнопок, px
+// Блок из 4 кнопок центрирован по вертикали экрана.
+const BUTTON_COUNT = 4;
+const BUTTON_BLOCK_HEIGHT = BUTTON_STEP * (BUTTON_COUNT - 1) + BUTTON_HEIGHT;
+const FIRST_BUTTON_Y =
+  GAME_HEIGHT / 2 - BUTTON_BLOCK_HEIGHT / 2 + BUTTON_HEIGHT / 2;
 
-// Мяч стартует над полом, по центру арены.
-const BALL_SPAWN_Y_FROM_FLOOR = 90;
+// Мяч стартует у пола, по центру арены — ниже блока кнопок в центре экрана,
+// чтобы точка спавна не пересекалась с физическим телом последней кнопки.
+const BALL_SPAWN_Y_FROM_FLOOR = 30;
 
 /** Прямоугольник зоны рогатки в меню — всё игровое поле над полом. */
 function createMenuZone() {
