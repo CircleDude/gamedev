@@ -14,12 +14,9 @@ import {
   BALL_SQUASH_SPEED,
   BAND_FORK_OFFSET,
   BAND_WIDTH,
-  FIST_RADIUS,
-  FIST_TRAIL,
+  FIST_SIZE,
+  FIST_GRIP,
   LAUNCH_ANIM_MS,
-  FIST_COLOR,
-  FIST_EDGE,
-  FIST_SEAM,
   type ControlZone,
 } from './constants';
 import { BALL_SKINS, ensureBallTexture, getBallSkin, type BallSkin } from './ballSkins';
@@ -94,8 +91,10 @@ export class Ball {
   private readonly ballImage: Phaser.GameObjects.Image;
   private readonly band: Phaser.GameObjects.Graphics;
   private readonly zone: ControlZone;
-  /** Текущий скин — резинка и кулак рисуются в его цветах. */
+  /** Текущий скин — резинка рисуется в его цветах. */
   private readonly skin: BallSkin;
+  /** Кулак-спрайт: тот же depth, что у резинки, но добавлен после неё. */
+  private readonly fist: Phaser.GameObjects.Image;
 
   private grabbed = false;
   private paused = false;
@@ -158,6 +157,13 @@ export class Ball {
     // Резинка рогатки рисуется под мячом.
     this.band = scene.add.graphics();
     this.band.setDepth(-1);
+    // Кулак — спрайт fist.png: depth как у резинки, добавлен после неё,
+    // поэтому рисуется поверх резинки; мяч (depth 0) — поверх кулака.
+    this.fist = scene.add.image(x, y, 'fist');
+    this.fist.setDepth(-1);
+    this.fist.setVisible(false);
+    // Отображаемая ширина — FIST_SIZE, высота пропорциональна текстуре.
+    this.fist.setScale(FIST_SIZE / this.fist.width);
 
     scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.tryGrab(pointer));
     scene.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onDrag(pointer));
@@ -211,7 +217,7 @@ export class Ball {
     this.grabbed = false;
     this.squashTimer = 0;
     this.arrowTimer = 0;
-    this.band.clear();
+    this.clearBand();
     Matter.Body.setStatic(this.bodySprite.body, false);
     Matter.Body.setPosition(this.bodySprite.body, { x, y });
     Matter.Body.setVelocity(this.bodySprite.body, { x: 0, y: 0 });
@@ -326,7 +332,7 @@ export class Ball {
       return;
     }
     Matter.Body.setStatic(this.bodySprite.body, false);
-    this.band.clear();
+    this.clearBand();
     this.resetVisual();
     this.syncView();
   }
@@ -349,7 +355,8 @@ export class Ball {
     // удара — здесь запускается только таймаут исчезновения.
     this.arrowTimer = BALL_SQUASH_MS;
     // Рисуем стрелку сразу в кадре удара — без «мигания» на один кадр.
-    this.band.clear();
+    // Кулак исчезает в момент удара.
+    this.clearBand();
     const bx = this.bodySprite.body.position.x;
     const by = this.bodySprite.body.position.y;
     this.drawArrowLine(this.band, bx, by, this.arrowTipX, this.arrowTipY);
@@ -391,7 +398,7 @@ export class Ball {
     this.arrowTimer = 0;
     this.detachWindowDrag();
     Matter.Body.setStatic(this.bodySprite.body, false);
-    this.band.clear();
+    this.clearBand();
     this.resetVisual();
     this.syncView();
   }
@@ -487,10 +494,13 @@ export class Ball {
   }
 
   /**
-   * Резинка рогатки: края отодвинуты от мяча, толще, с закруглёнными концами и
-   * огибанием «кулака» у курсора. showArrow=false скрывает прицельную стрелку
-   * (используется в анимации удара); после запуска стрелка рисуется отдельно
-   * (см. launchBall / updateArrow).
+   * Резинка рогатки: края отодвинуты от мяча, толще, с закруглёнными концами.
+   * Обе стороны резинки крепятся у боковых краёв кулака, каждая на своей
+   * стороне — линии не пересекаются и прячутся за кулаком. Кулак-спрайт
+   * ставится в точку натяжения и повёрнут «верхом» (костяшками) к мячу —
+   * строго между резинкой и мячом. showArrow=false скрывает
+   * прицельную стрелку (используется в анимации удара); после запуска стрелка
+   * рисуется отдельно (см. launchBall / updateArrow).
    */
   private drawBand(fistX: number, fistY: number, showArrow = true): void {
     const g = this.band;
@@ -512,48 +522,29 @@ export class Ball {
     const tipBx = ax - nx * BAND_FORK_OFFSET;
     const tipBy = ay - ny * BAND_FORK_OFFSET;
 
-    // Резинка огибает кулак дугой со стороны мяча — без излома у курсора.
-    const theta = Math.atan2(fistY - ay, fistX - ax); // мяч → кулак
-    const spread = 0.55;
-    const pAx = fistX + Math.cos(theta + spread) * FIST_RADIUS;
-    const pAy = fistY + Math.sin(theta + spread) * FIST_RADIUS;
-    const pBx = fistX + Math.cos(theta - spread) * FIST_RADIUS;
-    const pBy = fistY + Math.sin(theta - spread) * FIST_RADIUS;
+    // Крепления у боковых краёв кулака — по тому же перпендикуляру, что и
+    // края рогатки: стороны резинки не меняются местами и не пересекаются.
+    const gripAx = fistX + nx * FIST_GRIP;
+    const gripAy = fistY + ny * FIST_GRIP;
+    const gripBx = fistX - nx * FIST_GRIP;
+    const gripBy = fistY - ny * FIST_GRIP;
 
     g.lineStyle(BAND_WIDTH, this.skin.edge, 1);
-    g.lineBetween(tipAx, tipAy, pAx, pAy);
-    g.lineBetween(tipBx, tipBy, pBx, pBy);
-    const SEGMENTS = 6;
-    for (let i = 0; i < SEGMENTS; i++) {
-      const a1 = theta - spread + (2 * spread * i) / SEGMENTS;
-      const a2 = theta - spread + (2 * spread * (i + 1)) / SEGMENTS;
-      g.lineBetween(
-        fistX + Math.cos(a1) * FIST_RADIUS,
-        fistY + Math.sin(a1) * FIST_RADIUS,
-        fistX + Math.cos(a2) * FIST_RADIUS,
-        fistY + Math.sin(a2) * FIST_RADIUS,
-      );
-    }
+    g.lineBetween(tipAx, tipAy, gripAx, gripAy);
+    g.lineBetween(tipBx, tipBy, gripBx, gripBy);
     // Закруглённые концы резинки.
     g.fillStyle(this.skin.edge, 1);
     g.fillCircle(tipAx, tipAy, BAND_WIDTH / 2);
     g.fillCircle(tipBx, tipBy, BAND_WIDTH / 2);
-    g.fillCircle(pAx, pAy, BAND_WIDTH / 2);
-    g.fillCircle(pBx, pBy, BAND_WIDTH / 2);
+    g.fillCircle(gripAx, gripAy, BAND_WIDTH / 2);
+    g.fillCircle(gripBx, gripBy, BAND_WIDTH / 2);
 
-    // Кулак между резинкой и мячом, «смотрит» костяшками в сторону мяча.
-    this.drawFist(g, fistX, fistY, theta - Math.PI / 2);
-
-    // Свисающие концы резинки за кулаком.
-    g.lineStyle(BAND_WIDTH - 1, this.skin.edge, 1);
-    const back = theta + Math.PI;
-    for (const off of [-0.6, 0.6]) {
-      const a = back + off;
-      const sx = fistX + Math.cos(a) * FIST_RADIUS;
-      const sy = fistY + Math.sin(a) * FIST_RADIUS;
-      g.lineBetween(sx, sy, sx + Math.cos(a) * FIST_TRAIL, sy + Math.sin(a) * FIST_TRAIL);
-      g.fillCircle(sx + Math.cos(a) * FIST_TRAIL, sy + Math.sin(a) * FIST_TRAIL, (BAND_WIDTH - 1) / 2);
-    }
+    // Кулак-спрайт поверх резинки (тот же depth, добавлен после band),
+    // мяч выше по глубине. Поворот: «верх» спрайта (0, −1) направляем в
+    // сторону мяча (dx, dy) — угол = atan2(dy, dx) + π/2.
+    this.fist.setPosition(fistX, fistY);
+    this.fist.setRotation(Math.atan2(dy, dx) + Math.PI / 2);
+    this.fist.setVisible(true);
 
     // Прицельная стрелка — от мяча в сторону броска, длина зависит от натяжения.
     if (showArrow) {
@@ -564,53 +555,10 @@ export class Ball {
     }
   }
 
-  /**
-   * Кулак: белый с чёрным контуром, повёрнут костяшками в сторону мяча
-   * (локальный «верх» кисти — костяшки — направляется на угол rotation).
-   */
-  private drawFist(g: Phaser.GameObjects.Graphics, x: number, y: number, rotation: number): void {
-    g.save();
-    g.translateCanvas(x, y);
-    g.rotateCanvas(rotation);
-
-    const left = -FIST_RADIUS + 1;
-    const right = FIST_RADIUS - 1;
-    const top = -3;
-    const bottom = FIST_RADIUS - 2;
-    const kr = 2.75; // радиус «костяшки»
-
-    // Большой палец — отдельно, ладонь перекрывает его внутреннюю часть.
-    g.fillStyle(FIST_COLOR, 1);
-    g.lineStyle(2.5, FIST_EDGE, 1);
-    g.fillCircle(-13, 1, 4.5);
-    g.strokeCircle(-13, 1, 4.5);
-
-    // Ладонь: бугры костяшек сверху, скруглённый низ.
-    g.fillStyle(FIST_COLOR, 1);
-    g.lineStyle(2.5, FIST_EDGE, 1);
-    g.beginPath();
-    g.moveTo(left, bottom - 4);
-    g.lineTo(left, top);
-    for (let i = 0; i < 4; i++) {
-      const cx = left + kr + i * kr * 2;
-      g.arc(cx, top, kr, Math.PI, 0, false);
-    }
-    g.lineTo(right, bottom - 4);
-    g.arc(right - 2, bottom - 2, 2, 0, Math.PI / 2, false);
-    g.lineTo(left + 2, bottom);
-    g.arc(left + 2, bottom - 2, 2, Math.PI / 2, Math.PI, false);
-    g.closePath();
-    g.fillPath();
-    g.strokePath();
-
-    // Разделительные линии пальцев.
-    g.lineStyle(1.5, FIST_SEAM, 1);
-    for (const off of [-kr, 0, kr]) {
-      const cx = left + kr * 2 + off + kr / 2;
-      g.lineBetween(cx, top + 1, cx, top + 5);
-    }
-
-    g.restore();
+  /** Очищает резинку и прячет кулак (сброс визуала рогатки). */
+  private clearBand(): void {
+    this.band.clear();
+    this.fist.setVisible(false);
   }
 
   /**
@@ -626,7 +574,7 @@ export class Ball {
     const len = Math.hypot(this.arrowTipX - bx, this.arrowTipY - by);
     if (len <= BALL_RADIUS - 3 || this.arrowTimer <= 0) {
       this.arrowTimer = 0;
-      this.band.clear();
+      this.clearBand();
       return;
     }
     const g = this.band;

@@ -59,6 +59,11 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
+  preload(): void {
+    // Спрайт кулака из public (Vite с base './' отдаёт и в dev, и в билде).
+    this.load.image('fist', 'fist.png');
+  }
+
   create(): void {
     this.levelIndex = this.registry.get('level') ?? 0;
     // Восстанавливаем выбранный скин мяча (одноразово, при старте игры).

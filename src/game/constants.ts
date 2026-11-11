@@ -34,7 +34,7 @@ export const MATTER_VELOCITY_SCALE = 1 / 60;
 // --- Визуальное сжатие мяча при ударах ---
 export const BALL_SQUASH_MAX = 0.9; // максимальная деформация (доля от размера)
 export const BALL_SQUASH_MS = 200; // длительность сжатия, мс
-export const BALL_SQUASH_SPEED = 1500; // px/s — скорость удара, при которой сжатие полное
+export const BALL_SQUASH_SPEED = 2000; // px/s — скорость удара, при которой сжатие полное
 
 // --- Рогатка ---
 export const GRAB_RADIUS = BALL_RADIUS + 14; // радиус захвата мяча курсором
@@ -44,13 +44,12 @@ export const MAX_LAUNCH_SPEED = 1100; // px/s — скорость броска 
 // --- Рогатка: резинка и кулак ---
 export const BAND_FORK_OFFSET = 28; // отступ краёв рогатки от мяча, px (больше радиуса мяча)
 export const BAND_WIDTH = 5; // толщина резинки, px
-export const FIST_RADIUS = 13; // радиус кулака у курсора, px
-export const FIST_TRAIL = 12; // длина свисающих концов резинки за кулаком, px
+// Кулак — спрайт public/fist.png: ширина на экране, высота пропорциональна текстуре.
+export const FIST_SIZE = 34; // px; половина = 17
+// Отступ крепления резинки от центра кулака: 13 + радиус закруглённого конца
+// резинки 2.5 = 15.5 < 17 — концы резинки прячутся за спрайтом кулака.
+export const FIST_GRIP = 13;
 export const LAUNCH_ANIM_MS = 130; // анимация удара резинки по мячу перед запуском, мс (<200)
-// Кулак — белый с чёрным контуром, поворачивается «к взгляду» в сторону мяча.
-export const FIST_COLOR = 0xffffff;
-export const FIST_EDGE = 0x111111;
-export const FIST_SEAM = 0xbbbbbb;
 
 // --- Фаза 2 ---
 export const PHASE2_GRAVITY_SCALE = 1.5; // во сколько раз уменьшается гравитация в фазе 2
