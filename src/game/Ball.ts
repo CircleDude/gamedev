@@ -100,6 +100,18 @@ export class Ball {
   private squashPower = 0;
   private squashAngle = 0;
 
+  // Пока рогатка натянута, курсор отслеживается на уровне окна (см. attachWindowDrag).
+  private readonly onWindowPointerMove = (event: PointerEvent): void => {
+    if (!this.grabbed) return;
+    const p = this.eventToWorld(event);
+    this.dragX = p.x;
+    this.dragY = p.y;
+  };
+
+  private readonly onWindowPointerUp = (): void => {
+    this.release();
+  };
+
   constructor(scene: Phaser.Scene, x: number, y: number, zone: ControlZone) {
     this.scene = scene;
     this.zone = zone;
@@ -211,7 +223,29 @@ export class Ball {
     this.dragX = x;
     this.dragY = y;
     Matter.Body.setStatic(this.bodySprite.body, true);
+    // Курсор отслеживаем на уровне окна: перетаскивание не обрывается,
+    // когда курсор выходит за canvas (и даже за игровое поле — в пределах страницы).
+    this.attachWindowDrag();
     this.syncView();
+  }
+
+  /** Переводит координаты окна (clientX/Y) в координаты игрового мира. */
+  private eventToWorld(event: PointerEvent): { x: number; y: number } {
+    const world = this.scene.cameras.main.getWorldPoint(
+      this.scene.scale.transformX(event.clientX),
+      this.scene.scale.transformY(event.clientY),
+    );
+    return { x: world.x, y: world.y };
+  }
+
+  private attachWindowDrag(): void {
+    window.addEventListener('pointermove', this.onWindowPointerMove);
+    window.addEventListener('pointerup', this.onWindowPointerUp);
+  }
+
+  private detachWindowDrag(): void {
+    window.removeEventListener('pointermove', this.onWindowPointerMove);
+    window.removeEventListener('pointerup', this.onWindowPointerUp);
   }
 
   private onDrag(pointer: Phaser.Input.Pointer): void {
@@ -223,6 +257,7 @@ export class Ball {
   private release(): void {
     if (!this.grabbed) return;
     this.grabbed = false;
+    this.detachWindowDrag();
     Matter.Body.setStatic(this.bodySprite.body, false);
 
     // Бросок: направление противоположно оттяжке, сила от её длины.
@@ -247,6 +282,7 @@ export class Ball {
   /** Отменяет захват без броска (например, при паузе). */
   private cancelGrab(): void {
     this.grabbed = false;
+    this.detachWindowDrag();
     Matter.Body.setStatic(this.bodySprite.body, false);
     this.band.clear();
     this.resetVisual();
