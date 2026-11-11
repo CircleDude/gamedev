@@ -22,6 +22,8 @@ import {
 import { BALL_SKINS, ensureBallTexture, getBallSkin, type BallSkin } from './ballSkins';
 
 const ARROW_COLOR = 0xfbbf24;
+/** Размер (высота) треугольного наконечника стрелки. */
+const ARROW_HEAD = 11;
 
 /**
  * Тело MatterJS, которое Phaser 4 вешает напрямую на gameObject.body.
@@ -590,17 +592,23 @@ export class Ball {
     tipX: number,
     tipY: number,
   ): void {
-    g.lineStyle(4, ARROW_COLOR, 1);
-    g.lineBetween(baseX, baseY, tipX, tipY);
     const a = Math.atan2(tipY - baseY, tipX - baseX);
+    // Линия заканчивается у основания треугольника — вплотную, без наложения.
+    g.lineStyle(4, ARROW_COLOR, 1);
+    g.lineBetween(
+      baseX,
+      baseY,
+      tipX - ARROW_HEAD * Math.cos(a),
+      tipY - ARROW_HEAD * Math.sin(a),
+    );
     g.fillStyle(ARROW_COLOR, 1);
     g.fillTriangle(
       tipX,
       tipY,
-      tipX - 11 * Math.cos(a - 0.45),
-      tipY - 11 * Math.sin(a - 0.45),
-      tipX - 11 * Math.cos(a + 0.45),
-      tipY - 11 * Math.sin(a + 0.45),
+      tipX - ARROW_HEAD * Math.cos(a - 0.45),
+      tipY - ARROW_HEAD * Math.sin(a - 0.45),
+      tipX - ARROW_HEAD * Math.cos(a + 0.45),
+      tipY - ARROW_HEAD * Math.sin(a + 0.45),
     );
   }
 }
