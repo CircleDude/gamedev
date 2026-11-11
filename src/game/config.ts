@@ -1,5 +1,9 @@
 import Phaser from 'phaser';
+import { MenuScene } from './MenuScene';
 import { GameScene } from './GameScene';
+import { LevelSelectScene } from './LevelSelectScene';
+import { SkinOverlayScene } from './SkinOverlayScene';
+import { SettingsOverlayScene } from './SettingsOverlayScene';
 import { GAME_WIDTH, GAME_HEIGHT, GRAVITY_Y } from './constants';
 
 export function createGame(parent: string): Phaser.Game {
@@ -9,7 +13,9 @@ export function createGame(parent: string): Phaser.Game {
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
     backgroundColor: '#0f172a',
-    scene: [GameScene],
+    // Первая в массиве сцена стартует автоматически — это MenuScene.
+    // Оверлеи идут последними — рендерятся поверх всех остальных сцен.
+    scene: [MenuScene, GameScene, LevelSelectScene, SkinOverlayScene, SettingsOverlayScene],
     physics: {
       default: 'matter',
       matter: {

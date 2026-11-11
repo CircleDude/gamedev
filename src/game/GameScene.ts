@@ -3,47 +3,34 @@ import { Ball } from './Ball';
 import { Hoop } from './Hoop';
 import { BALL_SKINS, getNextBallSkinId } from './ballSkins';
 import {
+  BALL_RESTING_THRESH,
   FLOOR_Y,
   GRAVITY_Y,
-  LEVELS,
-  PHASE2_GRAVITY_SCALE,
-  BALL_RESTING_THRESH,
   WALL_RESTITUTION,
   WALL_FRICTION,
-  WALL_COLOR,
-  WALL_EDGE_COLOR,
-  WALL_VISUAL_THICKNESS,
   ZONE_COLOR,
   ZONE_ALPHA,
-  type LevelConfig,
 } from './constants';
+import { LEVELS, type LevelConfig } from './levels';
+import { applyLevelFeatures } from './levelFeatures';
+import { disableMatterAutoUpdate, stepMatterWorld, setRestingThresh } from './matterStep';
+import { createArenaBounds } from './arena';
+import { loadSkinId, markLevelCompleted, saveSkinId, setLastLevel } from './storage';
+import { MenuButton } from './ui/MenuButton';
 
-/**
- * Модуль MatterJS (в рантайме Phaser.Physics.Matter.Matter, в типах не описан).
- * Runner Phaser 4 передаёт в движок время в неверных единицах (физика ускоряется),
- * поэтому шагаем движок вручную с реальной дельтой кадра.
- */
-const Matter = (
-  Phaser.Physics.Matter as unknown as {
-    Matter: {
-      Engine: { update(engine: unknown, delta: number): void };
-      Resolver: { _restingThresh: number };
-    };
-  }
-).Matter;
-
-
-// Пунктирная парабола-подсказка на 1-м уровне: как бросить мяч, чтобы попасть в кольцо.
-const HINT_START = { x: 300, y: 293 }; // старт — мяч на спавне в зоне управления
-const HINT_CTRL = { x: 520, y: 60 }; // контрольная точка дуги Безье (высокий навес)
-const HINT_END = { x: 760, y: 460 }; // финиш — точка внутри корзины
-const HINT_DASH = 12; // длина штриха пунктира, px
-const HINT_GAP = 8; // длина промежутка пунктира, px
+// --- Финальный экран уровня (см. createWinScreen) ---
+const WIN_TITLE_OFFSET_Y = -150;
+const WIN_BUTTONS_START_OFFSET_Y = -60;
+const WIN_BUTTON_STEP = 70;
+const WIN_BUTTON_WIDTH = 280;
+const WIN_BUTTON_HEIGHT = 56;
 
 /**
  * Игра «Баскетбольный мяч».
  * Физика Matter: гравитация, упругость, трение (мяч закручивается при качении).
  * Управление только мышью: ЛКМ на мяче — «рогатка». Цель — забить мяч в кольцо.
+ * Уровень строится из декларации (levels.ts); механики включаются
+ * реестром levelFeatures.ts.
  */
 export class GameScene extends Phaser.Scene {
   private ball!: Ball;
@@ -51,9 +38,7 @@ export class GameScene extends Phaser.Scene {
   private levelIndex = 0;
   private won = false;
   private paused = false;
-  private phase2 = false;
   private overlayText!: Phaser.GameObjects.Text;
-  private phaseText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('GameScene');
@@ -66,43 +51,32 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.levelIndex = this.registry.get('level') ?? 0;
+    // Запоминаем последний запускавшийся уровень — «Играть» в меню откроет его.
+    setLastLevel(this.levelIndex);
     // Восстанавливаем выбранный скин мяча (одноразово, при старте игры).
     if (this.registry.get('ballSkin') === undefined) {
-      let saved: string | null = null;
-      try {
-        saved = localStorage.getItem('ballSkin');
-      } catch {
-        // localStorage недоступен — используем скин по умолчанию
-      }
-      this.registry.set('ballSkin', saved ?? BALL_SKINS[0].id);
+      this.registry.set('ballSkin', loadSkinId() ?? BALL_SKINS[0].id);
     }
     // Сцена перезапускается через scene.restart() на том же экземпляре —
     // сбрасываем флаги, иначе после победы и R мяч не засчитывается в кольцо.
     this.won = false;
     this.paused = false;
-    this.phase2 = false;
     const level = LEVELS[this.levelIndex];
-    const { width, height } = this.scale;
 
     this.matter.world.setGravity(0, GRAVITY_Y);
-    // Отключаем автообновление мира: шагаем движок сами в update().
-    (this.matter.world as unknown as { autoUpdate: boolean }).autoUpdate = false;
+    disableMatterAutoUpdate(this);
     // Разрешаем мелкие отскоки: стандартный порог Matter (~4) заставляет мяч «прилипать».
-    Matter.Resolver._restingThresh = BALL_RESTING_THRESH;
-    this.createArenaBounds();
-    // Подсказка-траектория только на 1-м уровне; рисуем до объектов уровня, чтобы она осталась на фоне.
-    if (this.levelIndex === 0) {
-      this.drawHintTrajectory();
-    }
+    setRestingThresh(BALL_RESTING_THRESH);
+    createArenaBounds(this);
     this.createLevelObjects(level);
     this.createHud(level);
     this.createZoneVisual(level);
-
-    // Фаза 2 начинается с 6-го уровня (levelIndex = 5) и действует до конца игры.
-    // При рестарте по R (level 0) фаза снова отключена.
-    if (this.levelIndex >= 5) {
-      this.startPhase2();
-    }
+    // Механики уровня (вращение кольца, гравитация, подсказка) — из декларации уровня.
+    applyLevelFeatures(level, {
+      scene: this,
+      hoop: this.hoop,
+      setGravity: (x: number, y: number) => this.matter.world.setGravity(x, y),
+    });
 
     if (!this.input.keyboard) {
       throw new Error('Keyboard input is unavailable.');
@@ -119,16 +93,12 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-C', () => this.cycleBallSkin());
   }
 
-  /** Меняет скин мяча по кругу; выбор сохраняется в localStorage. */
+  /** Меняет скин мяча по кругу; выбор сохраняется через storage. */
   private cycleBallSkin(): void {
     const current = (this.registry.get('ballSkin') as string) ?? BALL_SKINS[0].id;
     const next = getNextBallSkinId(current);
     this.registry.set('ballSkin', next);
-    try {
-      localStorage.setItem('ballSkin', next);
-    } catch {
-      // localStorage недоступен — скин просто не сохранится между запусками
-    }
+    saveSkinId(next);
     this.scene.restart();
   }
 
@@ -141,20 +111,9 @@ export class GameScene extends Phaser.Scene {
       .setVisible(this.paused);
   }
 
-  /** Начинает фазу 2: надпись, вращение кольца и пониженная гравитация. */
-  private startPhase2(): void {
-    this.phase2 = true;
-    this.hoop.setRotating(true);
-    this.matter.world.setGravity(0, GRAVITY_Y / PHASE2_GRAVITY_SCALE);
-    this.phaseText.setVisible(true);
-  }
-
   update(_time: number, delta: number): void {
     if (this.paused) return;
-    Matter.Engine.update(
-      (this.matter.world as unknown as { engine: unknown }).engine,
-      delta,
-    );
+    stepMatterWorld(this, delta);
     this.ball.update(delta);
     if (this.won) return;
 
@@ -165,102 +124,6 @@ export class GameScene extends Phaser.Scene {
     if (this.hoop.score(x, y, this.ball.getVelocityY())) {
       this.onScore();
       return;
-    }
-  }
-
-  /** Упругие границы арены: пол, потолок, левая и правая стены (+ их видимые рамки). */
-  private createArenaBounds(): void {
-    const { width, height } = this.scale;
-    const opts = { isStatic: true, restitution: WALL_RESTITUTION, friction: WALL_FRICTION };
-    const t = 80; // толщина невидимых стен
-    const v = WALL_VISUAL_THICKNESS; // внутренние плоскости стен совпадают с нарисованной рамкой
-
-    // Пол (верхняя кромка — FLOOR_Y)
-    this.matter.add.rectangle(
-      width / 2,
-      (FLOOR_Y + height + t) / 2,
-      width + t * 2,
-      height - FLOOR_Y + t,
-      opts,
-    );
-    // Потолок (нижняя кромка на y = v)
-    this.matter.add.rectangle(width / 2, v - t / 2, width + t * 2, t, opts);
-    // Левая стена (правая кромка на x = v) и правая (левая кромка на x = width - v)
-    this.matter.add.rectangle(v - t / 2, height / 2, t, height + t * 2, opts);
-    this.matter.add.rectangle(width - v + t / 2, height / 2, t, height + t * 2, opts);
-
-    this.drawArenaFrame(width, height);
-  }
-
-  /** Видимые стены: полоса пола, боковые стены, потолок и контур зоны управления. */
-  private drawArenaFrame(width: number, height: number): void {
-    const g = this.add.graphics();
-    const v = WALL_VISUAL_THICKNESS;
-
-    // Пол — заливка ниже кромки столкновения (FLOOR_Y)
-    g.fillStyle(WALL_COLOR, 1);
-    g.fillRect(0, FLOOR_Y, width, height - FLOOR_Y);
-
-    // Левая, правая стены и потолок — полосы внутри арены вдоль кромок столкновений
-    g.fillStyle(WALL_COLOR, 1);
-    g.fillRect(0, 0, v, FLOOR_Y);
-    g.fillRect(width - v, 0, v, FLOOR_Y);
-    g.fillRect(0, 0, width, v);
-
-    // Единая прямоугольная рамка по внутренним кромкам стен и пола
-    g.lineStyle(2, WALL_EDGE_COLOR, 1);
-    g.strokeRect(v, v, width - v * 2, FLOOR_Y - v);
-
-  }
-
-  /** Пунктирная парабола-подсказка: из зоны управления в корзину (только 1-й уровень). */
-  private drawHintTrajectory(): void {
-    const g = this.add.graphics();
-    const SEGMENTS = 64;
-
-    // Квадратичная кривая Безье: HINT_START → HINT_CTRL → HINT_END.
-    const pts: Array<{ x: number; y: number }> = [];
-    for (let i = 0; i <= SEGMENTS; i++) {
-      const t = i / SEGMENTS;
-      const mt = 1 - t;
-      pts.push({
-        x: mt * mt * HINT_START.x + 2 * mt * t * HINT_CTRL.x + t * t * HINT_END.x,
-        y: mt * mt * HINT_START.y + 2 * mt * t * HINT_CTRL.y + t * t * HINT_END.y,
-      });
-    }
-
-    // Длины сегментов ломаной и накопленное смещение начала каждого сегмента.
-    const segLens: number[] = [];
-    const offsets: number[] = [0];
-    for (let i = 1; i < pts.length; i++) {
-      const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-      segLens.push(len);
-      offsets.push(offsets[i - 1] + len);
-    }
-    const total = offsets[offsets.length - 1];
-    const period = HINT_DASH + HINT_GAP;
-
-    g.lineStyle(2, 0xffffff, 0.35);
-    for (let dashFrom = 0; dashFrom < total - 1; dashFrom += period) {
-      const dashTo = Math.min(dashFrom + HINT_DASH, total);
-      let start: { x: number; y: number } | null = null;
-      let end: { x: number; y: number } | null = null;
-      for (let i = 0; i < segLens.length; i++) {
-        const s0 = offsets[i];
-        const s1 = offsets[i + 1];
-        if (dashTo <= s0 || dashFrom >= s1) continue;
-        const lo = Math.max(dashFrom, s0);
-        const hi = Math.min(dashTo, s1);
-        const x0 = Phaser.Math.Linear(pts[i].x, pts[i + 1].x, (lo - s0) / segLens[i]);
-        const y0 = Phaser.Math.Linear(pts[i].y, pts[i + 1].y, (lo - s0) / segLens[i]);
-        const x1 = Phaser.Math.Linear(pts[i].x, pts[i + 1].x, (hi - s0) / segLens[i]);
-        const y1 = Phaser.Math.Linear(pts[i].y, pts[i + 1].y, (hi - s0) / segLens[i]);
-        if (!start) start = { x: x0, y: y0 };
-        end = { x: x1, y: y1 };
-      }
-      if (start && end) {
-        g.lineBetween(start.x, start.y, end.x, end.y);
-      }
     }
   }
 
@@ -294,7 +157,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** HUD в нижней полосе пола: уровень, управление, бейдж фазы. */
+  /** HUD в нижней полосе пола: уровень, управление. */
   private createHud(level: LevelConfig): void {
     const { width, height } = this.scale;
     const midY = FLOOR_Y + (height - FLOOR_Y) / 2;
@@ -326,29 +189,64 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setVisible(false);
-
-    // Бейдж фазы: появляется при старте фазы 2.
-    this.phaseText = this.add
-      .text(width - 16, midY, 'ФАЗА 2', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '18px',
-        fontStyle: 'bold',
-        color: '#fb923c',
-      })
-      .setOrigin(1, 0.5)
-      .setVisible(false);
   }
 
   private onScore(): void {
-    if (this.levelIndex < LEVELS.length - 1) {
-      this.registry.set('level', this.levelIndex + 1);
-      this.scene.restart();
-    } else {
-      this.won = true;
-      this.overlayText
-        .setText('ВСЕ УРОВНИ ПРОЙДЕНЫ!\nНажми R, чтобы сыграть ещё раз.')
-        .setVisible(true);
+    // Прогресс: уровень пройден, следующий открыт, «Играть» в меню откроет следующий
+    // (markLevelCompleted сам выставляет last = index + 1, см. storage.ts).
+    markLevelCompleted(this.levelIndex);
+    this.won = true;
+    // Мяч больше не захватывается — клики уходят кнопкам победного экрана.
+    this.ball.setPaused(true);
+    this.createWinScreen();
+  }
+
+  /** Финальный экран уровня: «Следующий уровень» (если есть), «Повторить», «В меню». */
+  private createWinScreen(): void {
+    const { width, height } = this.scale;
+    const isLastLevel = this.levelIndex >= LEVELS.length - 1;
+
+    this.add
+      .text(width / 2, height / 2 + WIN_TITLE_OFFSET_Y, isLastLevel
+        ? 'ВСЕ УРОВНИ ПРОЙДЕНЫ!'
+        : `УРОВЕНЬ ${this.levelIndex + 1} ПРОЙДЕН!`, {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '32px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        backgroundColor: '#0f172a',
+        padding: { x: 20, y: 12 },
+      })
+      .setOrigin(0.5, 0.5);
+
+    let buttonY = height / 2 + WIN_BUTTONS_START_OFFSET_Y;
+    if (!isLastLevel) {
+      new MenuButton(this, width / 2, buttonY, {
+        label: 'Следующий уровень',
+        width: WIN_BUTTON_WIDTH,
+        height: WIN_BUTTON_HEIGHT,
+        withPhysics: false,
+        onClick: () => {
+          this.registry.set('level', this.levelIndex + 1);
+          this.scene.restart();
+        },
+      });
+      buttonY += WIN_BUTTON_STEP;
     }
+    new MenuButton(this, width / 2, buttonY, {
+      label: 'Повторить',
+      width: WIN_BUTTON_WIDTH,
+      height: WIN_BUTTON_HEIGHT,
+      withPhysics: false,
+      onClick: () => this.scene.restart(),
+    });
+    new MenuButton(this, width / 2, buttonY + WIN_BUTTON_STEP, {
+      label: 'В меню',
+      width: WIN_BUTTON_WIDTH,
+      height: WIN_BUTTON_HEIGHT,
+      withPhysics: false,
+      onClick: () => this.scene.start('MenuScene'),
+    });
   }
 
 }

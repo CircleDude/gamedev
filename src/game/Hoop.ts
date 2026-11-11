@@ -1,10 +1,6 @@
 import Phaser from 'phaser';
-import {
-  WALL_RESTITUTION,
-  WALL_FRICTION,
-  HOOP_ROTATION_SPEED,
-  type HoopConfig,
-} from './constants';
+import { WALL_RESTITUTION, WALL_FRICTION, HOOP_ROTATION_SPEED } from './constants';
+import type { HoopConfig } from './levels';
 
 const RING_COLOR = 0xef4444;
 

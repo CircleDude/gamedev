@@ -17,8 +17,8 @@ import {
   FIST_SIZE,
   FIST_GRIP,
   LAUNCH_ANIM_MS,
-  type ControlZone,
 } from './constants';
+import type { ControlZone } from './levels';
 import { BALL_SKINS, ensureBallTexture, getBallSkin, type BallSkin } from './ballSkins';
 
 const ARROW_COLOR = 0xfbbf24;
@@ -93,6 +93,8 @@ export class Ball {
   private readonly ballImage: Phaser.GameObjects.Image;
   private readonly band: Phaser.GameObjects.Graphics;
   private readonly zone: ControlZone;
+  /** Опциональный фильтр захвата (см. конструктор). */
+  private readonly grabGuard?: (x: number, y: number) => boolean;
   /** Текущий скин — резинка рисуется в его цветах. */
   private readonly skin: BallSkin;
   /** Кулак-спрайт: тот же depth, что у резинки, но добавлен после неё. */
@@ -135,9 +137,21 @@ export class Ball {
   private arrowTipY = 0;
   private arrowTimer = 0;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, zone: ControlZone) {
+  /**
+   * grabGuard — опциональная проверка точки нажатия перед захватом мяча
+   * (вернуть false, чтобы клик не захватил мяч, например над кнопками меню).
+   * Без аргумента поведение идентично прежнему.
+   */
+  constructor(
+    scene: Phaser.Scene,
+    x: number,
+    y: number,
+    zone: ControlZone,
+    grabGuard?: (x: number, y: number) => boolean,
+  ) {
     this.scene = scene;
     this.zone = zone;
+    this.grabGuard = grabGuard;
 
     const skinId = (scene.registry.get('ballSkin') as string | undefined) ?? BALL_SKINS[0].id;
     this.skin = getBallSkin(skinId);
@@ -241,6 +255,8 @@ export class Ball {
     if (!pointer.leftButtonDown()) return;
     // Курсор должен быть внутри зоны управления
     if (!this.isPointInZone(pointer.worldX, pointer.worldY)) return;
+    // Точка нажатия может быть запрещена сценой (например, над кнопками меню)
+    if (this.grabGuard && !this.grabGuard(pointer.worldX, pointer.worldY)) return;
 
     // Мяч появляется там, где курсор (с ограничением по зоне и полу)
     const x = Phaser.Math.Clamp(
