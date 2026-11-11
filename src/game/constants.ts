@@ -41,6 +41,17 @@ export const GRAB_RADIUS = BALL_RADIUS + 14; // радиус захвата мя
 export const MAX_DRAG = 170; // px — длина оттяжки для полной силы броска
 export const MAX_LAUNCH_SPEED = 1100; // px/s — скорость броска при полной оттяжке
 
+// --- Рогатка: резинка и кулак ---
+export const BAND_FORK_OFFSET = 28; // отступ краёв рогатки от мяча, px (больше радиуса мяча)
+export const BAND_WIDTH = 5; // толщина резинки, px
+export const FIST_RADIUS = 13; // радиус кулака у курсора, px
+export const FIST_TRAIL = 12; // длина свисающих концов резинки за кулаком, px
+export const LAUNCH_ANIM_MS = 130; // анимация удара резинки по мячу перед запуском, мс (<200)
+// Кулак — белый с чёрным контуром, поворачивается «к взгляду» в сторону мяча.
+export const FIST_COLOR = 0xffffff;
+export const FIST_EDGE = 0x111111;
+export const FIST_SEAM = 0xbbbbbb;
+
 // --- Фаза 2 ---
 export const PHASE2_GRAVITY_SCALE = 1.5; // во сколько раз уменьшается гравитация в фазе 2
 export const HOOP_ROTATION_SPEED = 0.5; // рад/с — скорость вращения кольца вокруг центра в фазе 2

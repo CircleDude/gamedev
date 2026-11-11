@@ -12,11 +12,18 @@ import {
   BALL_SQUASH_MAX,
   BALL_SQUASH_MS,
   BALL_SQUASH_SPEED,
+  BAND_FORK_OFFSET,
+  BAND_WIDTH,
+  FIST_RADIUS,
+  FIST_TRAIL,
+  LAUNCH_ANIM_MS,
+  FIST_COLOR,
+  FIST_EDGE,
+  FIST_SEAM,
   type ControlZone,
 } from './constants';
-import { BALL_SKINS, ensureBallTexture, getBallSkin } from './ballSkins';
+import { BALL_SKINS, ensureBallTexture, getBallSkin, type BallSkin } from './ballSkins';
 
-const BAND_COLOR = 0x92400e;
 const ARROW_COLOR = 0xfbbf24;
 
 /**
@@ -87,6 +94,8 @@ export class Ball {
   private readonly ballImage: Phaser.GameObjects.Image;
   private readonly band: Phaser.GameObjects.Graphics;
   private readonly zone: ControlZone;
+  /** Текущий скин — резинка и кулак рисуются в его цветах. */
+  private readonly skin: BallSkin;
 
   private grabbed = false;
   private paused = false;
@@ -94,6 +103,14 @@ export class Ball {
   private anchorY = 0;
   private dragX = 0;
   private dragY = 0;
+
+  // Анимация запуска: резинка летит к мячу, «бьёт» его — и мяч стартует.
+  private launching = false;
+  private launchTimer = 0;
+  private launchDir = { x: 0, y: 0 };
+  private launchPower = 0;
+  private launchFistX = 0;
+  private launchFistY = 0;
 
   // Визуальное сжатие при ударе: вдоль нормали контакта.
   private squashTimer = 0;
@@ -104,20 +121,26 @@ export class Ball {
   private readonly onWindowPointerMove = (event: PointerEvent): void => {
     if (!this.grabbed) return;
     const p = this.eventToWorld(event);
-    this.dragX = p.x;
-    this.dragY = p.y;
+    this.setDragPoint(p.x, p.y);
   };
 
   private readonly onWindowPointerUp = (): void => {
     this.release();
   };
 
+  // Стрелка запуска: дальний конец зафиксирован в мире при запуске, основание
+  // следует за центром мяча; исчезает по длине ≤ радиуса мяча или по таймауту.
+  private arrowTipX = 0;
+  private arrowTipY = 0;
+  private arrowTimer = 0;
+
   constructor(scene: Phaser.Scene, x: number, y: number, zone: ControlZone) {
     this.scene = scene;
     this.zone = zone;
 
     const skinId = (scene.registry.get('ballSkin') as string | undefined) ?? BALL_SKINS[0].id;
-    const textureKey = ensureBallTexture(scene, getBallSkin(skinId));
+    this.skin = getBallSkin(skinId);
+    const textureKey = ensureBallTexture(scene, this.skin);
 
     this.bodySprite = scene.add.sprite(x, y, textureKey) as BallBody;
 
@@ -132,7 +155,9 @@ export class Ball {
     this.view = scene.add.container(x, y);
     this.ballImage = scene.add.image(0, 0, textureKey);
     this.view.add(this.ballImage);
+    // Резинка рогатки рисуется под мячом.
     this.band = scene.add.graphics();
+    this.band.setDepth(-1);
 
     scene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.tryGrab(pointer));
     scene.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onDrag(pointer));
@@ -152,7 +177,10 @@ export class Ball {
   update(delta: number): void {
     if (this.grabbed) {
       this.updateGrabbed();
+    } else if (this.launching) {
+      this.updateLaunchAnimation(delta);
     } else {
+      this.updateArrow(delta);
       if (this.squashTimer > 0) {
         this.updateSquash(delta);
       } else {
@@ -182,6 +210,7 @@ export class Ball {
   reset(x: number, y: number): void {
     this.grabbed = false;
     this.squashTimer = 0;
+    this.arrowTimer = 0;
     this.band.clear();
     Matter.Body.setStatic(this.bodySprite.body, false);
     Matter.Body.setPosition(this.bodySprite.body, { x, y });
@@ -200,7 +229,7 @@ export class Ball {
   }
 
   private tryGrab(pointer: Phaser.Input.Pointer): void {
-    if (this.paused || this.grabbed) return;
+    if (this.paused || this.grabbed || this.launching) return;
     if (!pointer.leftButtonDown()) return;
     // Курсор должен быть внутри зоны управления
     if (!this.isPointInZone(pointer.worldX, pointer.worldY)) return;
@@ -250,38 +279,116 @@ export class Ball {
 
   private onDrag(pointer: Phaser.Input.Pointer): void {
     if (!this.grabbed) return;
-    this.dragX = pointer.worldX;
-    this.dragY = pointer.worldY;
+    this.setDragPoint(pointer.worldX, pointer.worldY);
+  }
+
+  /**
+   * Обновляет точку натяжения (кулак). На пределе (MAX_DRAG) резинка дальше
+   * не тянется — кулак останавливается на границе, сила фиксируется.
+   */
+  private setDragPoint(x: number, y: number): void {
+    const dx = x - this.anchorX;
+    const dy = y - this.anchorY;
+    const len = Math.hypot(dx, dy);
+    if (len > MAX_DRAG) {
+      const k = MAX_DRAG / len;
+      this.dragX = this.anchorX + dx * k;
+      this.dragY = this.anchorY + dy * k;
+    } else {
+      this.dragX = x;
+      this.dragY = y;
+    }
   }
 
   private release(): void {
     if (!this.grabbed) return;
     this.grabbed = false;
     this.detachWindowDrag();
-    Matter.Body.setStatic(this.bodySprite.body, false);
 
     // Бросок: направление противоположно оттяжке, сила от её длины.
     const dx = this.anchorX - this.dragX;
     const dy = this.anchorY - this.dragY;
     const len = Math.hypot(dx, dy);
     if (len > 1) {
-      const power = Math.min(len / MAX_DRAG, 1);
-      const speed = power * MAX_LAUNCH_SPEED; // px/s
-      Matter.Body.setVelocity(this.bodySprite.body, {
-        x: (dx / len) * speed * MATTER_VELOCITY_SCALE,
-        y: (dy / len) * speed * MATTER_VELOCITY_SCALE,
-      });
-      Matter.Body.setAngularVelocity(this.bodySprite.body, 0);
-      this.showLaunchArrow(dx / len, dy / len, power);
+      // Анимация: резинка летит к мячу, «бьёт» его — и мяч стартует (≤200 мс).
+      // Мяч остаётся на месте (статичным) до момента удара.
+      this.launching = true;
+      this.launchTimer = LAUNCH_ANIM_MS;
+      this.launchDir = { x: dx / len, y: dy / len };
+      this.launchPower = Math.min(len / MAX_DRAG, 1);
+      this.launchFistX = this.dragX;
+      this.launchFistY = this.dragY;
+      // Стрелка запуска появляется сразу при отпускании: дальний конец фиксируется
+      // в конечной точке, основание — на мяче (мяч ещё статичен в якоре).
+      // Это исключает «мигание» во время анимации удара (LAUNCH_ANIM_MS).
+      this.arrowTipX = this.anchorX + this.launchDir.x * (30 + this.launchPower * 50);
+      this.arrowTipY = this.anchorY + this.launchDir.y * (30 + this.launchPower * 50);
+      return;
     }
+    Matter.Body.setStatic(this.bodySprite.body, false);
     this.band.clear();
     this.resetVisual();
     this.syncView();
   }
 
+  /** Запуск мяча в конце анимации удара резинки. */
+  private launchBall(): void {
+    this.launching = false;
+    Matter.Body.setStatic(this.bodySprite.body, false);
+    const speed = this.launchPower * MAX_LAUNCH_SPEED; // px/s
+    Matter.Body.setVelocity(this.bodySprite.body, {
+      x: this.launchDir.x * speed * MATTER_VELOCITY_SCALE,
+      y: this.launchDir.y * speed * MATTER_VELOCITY_SCALE,
+    });
+    Matter.Body.setAngularVelocity(this.bodySprite.body, 0);
+    // Резинка «ударила»: мяч сжимается той же логикой, что и при столкновении —
+    // ось вдоль линии удара, сила от скорости (см. startSquash).
+    const speedPxS = this.launchPower * MAX_LAUNCH_SPEED;
+    this.startSquash(this.launchDir.x, this.launchDir.y, speedPxS);
+    // Стрелка уже зафиксирована при отпускании (release) и видна всю анимацию
+    // удара — здесь запускается только таймаут исчезновения.
+    this.arrowTimer = BALL_SQUASH_MS;
+    // Рисуем стрелку сразу в кадре удара — без «мигания» на один кадр.
+    this.band.clear();
+    const bx = this.bodySprite.body.position.x;
+    const by = this.bodySprite.body.position.y;
+    this.drawArrowLine(this.band, bx, by, this.arrowTipX, this.arrowTipY);
+    this.resetVisual();
+    this.syncView();
+  }
+
+  /** Анимация полёта резинки к мячу перед запуском. */
+  private updateLaunchAnimation(delta: number): void {
+    this.launchTimer -= delta;
+    const t = Math.max(this.launchTimer, 0) / LAUNCH_ANIM_MS; // 1 → 0
+    // Кулак летит к мячу с ускорением (ease-in) — резинка «выстреливает».
+    const e = t * t;
+    const fx = this.anchorX + (this.launchFistX - this.anchorX) * e;
+    const fy = this.anchorY + (this.launchFistY - this.anchorY) * e;
+    // Мяч остаётся растянутым, пока резинка не «ударила».
+    const axis = Math.atan2(-this.launchDir.y, -this.launchDir.x);
+    this.view.rotation = axis;
+    this.view.scaleX = 1 + this.launchPower * 0.4;
+    this.view.scaleY = 1 - this.launchPower * 0.25;
+    this.ballImage.rotation = this.bodySprite.body.angle - axis;
+    // Кулак летит в мяч целиком: резинка «запускает» его.
+    // Стрелка прицеливания скрыта, но стрелка запуска рисуется всю анимацию
+    // (наконечник уже зафиксирован, основание — на статичном мяче), поэтому
+    // стрелка не пропадает между отпусканием и ударом.
+    this.drawBand(fx, fy, false);
+    const bx = this.bodySprite.body.position.x;
+    const by = this.bodySprite.body.position.y;
+    this.drawArrowLine(this.band, bx, by, this.arrowTipX, this.arrowTipY);
+    if (this.launchTimer <= 0) {
+      this.launchBall();
+    }
+  }
+
   /** Отменяет захват без броска (например, при паузе). */
   private cancelGrab(): void {
     this.grabbed = false;
+    this.launching = false;
+    this.arrowTimer = 0;
     this.detachWindowDrag();
     Matter.Body.setStatic(this.bodySprite.body, false);
     this.band.clear();
@@ -306,7 +413,7 @@ export class Ball {
     } else {
       this.resetVisual();
     }
-    this.drawBand();
+    this.drawBand(this.dragX, this.dragY);
   }
 
   /** Короткое «пружинное» сжатие при ударе: вдоль нормали контакта. */
@@ -331,11 +438,20 @@ export class Ball {
     for (const pair of event.pairs) {
       if (pair.bodyA !== this.bodySprite.body && pair.bodyB !== this.bodySprite.body) continue;
       const normal = pair.collision.normal;
-      this.squashAngle = Math.atan2(normal.y, normal.x);
       const speedPxS = this.bodySprite.body.speed / MATTER_VELOCITY_SCALE;
-      this.squashPower = Phaser.Math.Clamp(speedPxS / BALL_SQUASH_SPEED, 0, 1);
-      this.squashTimer = BALL_SQUASH_MS;
+      this.startSquash(normal.x, normal.y, speedPxS);
     }
+  }
+
+  /**
+   * Запускает визуальный пульс сжатия (общая реализация для столкновений и
+   * запуска): ось — вдоль нормали удара, сила — от скорости, ограничения
+   * одинаковые: clamp(скорость / BALL_SQUASH_SPEED, 0, 1), длительность BALL_SQUASH_MS.
+   */
+  private startSquash(normalX: number, normalY: number, speedPxS: number): void {
+    this.squashAngle = Math.atan2(normalY, normalX);
+    this.squashPower = Phaser.Math.Clamp(speedPxS / BALL_SQUASH_SPEED, 0, 1);
+    this.squashTimer = BALL_SQUASH_MS;
   }
 
   /** Возвращает видимый узел к недеформированному виду с поворотом тела. */
@@ -370,68 +486,173 @@ export class Ball {
     );
   }
 
-  /** «Резинки» рогатки и стрелка направления броска во время оттяжки. */
-  private drawBand(): void {
+  /**
+   * Резинка рогатки: края отодвинуты от мяча, толще, с закруглёнными концами и
+   * огибанием «кулака» у курсора. showArrow=false скрывает прицельную стрелку
+   * (используется в анимации удара); после запуска стрелка рисуется отдельно
+   * (см. launchBall / updateArrow).
+   */
+  private drawBand(fistX: number, fistY: number, showArrow = true): void {
     const g = this.band;
     g.clear();
-    const dx = this.dragX - this.anchorX;
-    const dy = this.dragY - this.anchorY;
-    const len = Math.hypot(dx, dy);
-    if (len < 1) return;
+    const ax = this.anchorX;
+    const ay = this.anchorY;
+    const dx = ax - fistX;
+    const dy = ay - fistY;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.5) {
+      return;
+    }
+    const nx = -dy / dist;
+    const ny = dx / dist;
 
-    const nx = -dy / len;
-    const ny = dx / len;
-    g.lineStyle(3, BAND_COLOR, 1);
-    g.lineBetween(this.anchorX + nx * 6, this.anchorY + ny * 6, this.dragX, this.dragY);
-    g.lineBetween(this.anchorX - nx * 6, this.anchorY - ny * 6, this.dragX, this.dragY);
+    // Края «рогатки» отодвинуты от мяча перпендикулярно линии натяжения.
+    const tipAx = ax + nx * BAND_FORK_OFFSET;
+    const tipAy = ay + ny * BAND_FORK_OFFSET;
+    const tipBx = ax - nx * BAND_FORK_OFFSET;
+    const tipBy = ay - ny * BAND_FORK_OFFSET;
 
-    const power = Math.min(len / MAX_DRAG, 1);
-    const dirX = -dx / len;
-    const dirY = -dy / len;
-    const arrowLen = 30 + power * 50;
-    const tipX = this.anchorX + dirX * arrowLen;
-    const tipY = this.anchorY + dirY * arrowLen;
-    g.lineStyle(3, ARROW_COLOR, 1);
-    g.lineBetween(this.anchorX, this.anchorY, tipX, tipY);
-    const a = Math.atan2(dirY, dirX);
-    g.fillStyle(ARROW_COLOR, 1);
-    g.fillTriangle(
-      tipX,
-      tipY,
-      tipX - 10 * Math.cos(a - 0.4),
-      tipY - 10 * Math.sin(a - 0.4),
-      tipX - 10 * Math.cos(a + 0.4),
-      tipY - 10 * Math.sin(a + 0.4),
-    );
+    // Резинка огибает кулак дугой со стороны мяча — без излома у курсора.
+    const theta = Math.atan2(fistY - ay, fistX - ax); // мяч → кулак
+    const spread = 0.55;
+    const pAx = fistX + Math.cos(theta + spread) * FIST_RADIUS;
+    const pAy = fistY + Math.sin(theta + spread) * FIST_RADIUS;
+    const pBx = fistX + Math.cos(theta - spread) * FIST_RADIUS;
+    const pBy = fistY + Math.sin(theta - spread) * FIST_RADIUS;
+
+    g.lineStyle(BAND_WIDTH, this.skin.edge, 1);
+    g.lineBetween(tipAx, tipAy, pAx, pAy);
+    g.lineBetween(tipBx, tipBy, pBx, pBy);
+    const SEGMENTS = 6;
+    for (let i = 0; i < SEGMENTS; i++) {
+      const a1 = theta - spread + (2 * spread * i) / SEGMENTS;
+      const a2 = theta - spread + (2 * spread * (i + 1)) / SEGMENTS;
+      g.lineBetween(
+        fistX + Math.cos(a1) * FIST_RADIUS,
+        fistY + Math.sin(a1) * FIST_RADIUS,
+        fistX + Math.cos(a2) * FIST_RADIUS,
+        fistY + Math.sin(a2) * FIST_RADIUS,
+      );
+    }
+    // Закруглённые концы резинки.
+    g.fillStyle(this.skin.edge, 1);
+    g.fillCircle(tipAx, tipAy, BAND_WIDTH / 2);
+    g.fillCircle(tipBx, tipBy, BAND_WIDTH / 2);
+    g.fillCircle(pAx, pAy, BAND_WIDTH / 2);
+    g.fillCircle(pBx, pBy, BAND_WIDTH / 2);
+
+    // Кулак между резинкой и мячом, «смотрит» костяшками в сторону мяча.
+    this.drawFist(g, fistX, fistY, theta - Math.PI / 2);
+
+    // Свисающие концы резинки за кулаком.
+    g.lineStyle(BAND_WIDTH - 1, this.skin.edge, 1);
+    const back = theta + Math.PI;
+    for (const off of [-0.6, 0.6]) {
+      const a = back + off;
+      const sx = fistX + Math.cos(a) * FIST_RADIUS;
+      const sy = fistY + Math.sin(a) * FIST_RADIUS;
+      g.lineBetween(sx, sy, sx + Math.cos(a) * FIST_TRAIL, sy + Math.sin(a) * FIST_TRAIL);
+      g.fillCircle(sx + Math.cos(a) * FIST_TRAIL, sy + Math.sin(a) * FIST_TRAIL, (BAND_WIDTH - 1) / 2);
+    }
+
+    // Прицельная стрелка — от мяча в сторону броска, длина зависит от натяжения.
+    if (showArrow) {
+      const power = Math.min(dist / MAX_DRAG, 1);
+      const tipX = ax + (dx / dist) * (30 + power * 50);
+      const tipY = ay + (dy / dist) * (30 + power * 50);
+      this.drawArrowLine(g, ax, ay, tipX, tipY);
+    }
   }
 
-  /** Короткая стрелка-«вжух» в момент броска. */
-  private showLaunchArrow(dirX: number, dirY: number, power: number): void {
+  /**
+   * Кулак: белый с чёрным контуром, повёрнут костяшками в сторону мяча
+   * (локальный «верх» кисти — костяшки — направляется на угол rotation).
+   */
+  private drawFist(g: Phaser.GameObjects.Graphics, x: number, y: number, rotation: number): void {
+    g.save();
+    g.translateCanvas(x, y);
+    g.rotateCanvas(rotation);
+
+    const left = -FIST_RADIUS + 1;
+    const right = FIST_RADIUS - 1;
+    const top = -3;
+    const bottom = FIST_RADIUS - 2;
+    const kr = 2.75; // радиус «костяшки»
+
+    // Большой палец — отдельно, ладонь перекрывает его внутреннюю часть.
+    g.fillStyle(FIST_COLOR, 1);
+    g.lineStyle(2.5, FIST_EDGE, 1);
+    g.fillCircle(-13, 1, 4.5);
+    g.strokeCircle(-13, 1, 4.5);
+
+    // Ладонь: бугры костяшек сверху, скруглённый низ.
+    g.fillStyle(FIST_COLOR, 1);
+    g.lineStyle(2.5, FIST_EDGE, 1);
+    g.beginPath();
+    g.moveTo(left, bottom - 4);
+    g.lineTo(left, top);
+    for (let i = 0; i < 4; i++) {
+      const cx = left + kr + i * kr * 2;
+      g.arc(cx, top, kr, Math.PI, 0, false);
+    }
+    g.lineTo(right, bottom - 4);
+    g.arc(right - 2, bottom - 2, 2, 0, Math.PI / 2, false);
+    g.lineTo(left + 2, bottom);
+    g.arc(left + 2, bottom - 2, 2, Math.PI / 2, Math.PI, false);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+
+    // Разделительные линии пальцев.
+    g.lineStyle(1.5, FIST_SEAM, 1);
+    for (const off of [-kr, 0, kr]) {
+      const cx = left + kr * 2 + off + kr / 2;
+      g.lineBetween(cx, top + 1, cx, top + 5);
+    }
+
+    g.restore();
+  }
+
+  /**
+   * Стрелка запуска: дальний конец стоит на месте, основание следует за центром
+   * мяча. Исчезает, когда длина доходит до радиуса мяча (с погрешностью), либо
+   * по таймауту — на случай удара в стену и отскока.
+   */
+  private updateArrow(delta: number): void {
+    if (this.arrowTimer <= 0) return;
+    this.arrowTimer -= delta;
+    const bx = this.bodySprite.body.position.x;
+    const by = this.bodySprite.body.position.y;
+    const len = Math.hypot(this.arrowTipX - bx, this.arrowTipY - by);
+    if (len <= BALL_RADIUS - 3 || this.arrowTimer <= 0) {
+      this.arrowTimer = 0;
+      this.band.clear();
+      return;
+    }
     const g = this.band;
     g.clear();
-    const arrowLen = 30 + power * 50;
-    const tipX = this.anchorX + dirX * arrowLen;
-    const tipY = this.anchorY + dirY * arrowLen;
-    g.lineStyle(3, ARROW_COLOR, 1);
-    g.lineBetween(this.anchorX, this.anchorY, tipX, tipY);
-    const a = Math.atan2(dirY, dirX);
+    this.drawArrowLine(g, bx, by, this.arrowTipX, this.arrowTipY);
+  }
+
+  /** Стрелка от базовой точки к зафиксированному наконечнику. */
+  private drawArrowLine(
+    g: Phaser.GameObjects.Graphics,
+    baseX: number,
+    baseY: number,
+    tipX: number,
+    tipY: number,
+  ): void {
+    g.lineStyle(4, ARROW_COLOR, 1);
+    g.lineBetween(baseX, baseY, tipX, tipY);
+    const a = Math.atan2(tipY - baseY, tipX - baseX);
     g.fillStyle(ARROW_COLOR, 1);
     g.fillTriangle(
       tipX,
       tipY,
-      tipX - 10 * Math.cos(a - 0.4),
-      tipY - 10 * Math.sin(a - 0.4),
-      tipX - 10 * Math.cos(a + 0.4),
-      tipY - 10 * Math.sin(a + 0.4),
+      tipX - 11 * Math.cos(a - 0.45),
+      tipY - 11 * Math.sin(a - 0.45),
+      tipX - 11 * Math.cos(a + 0.45),
+      tipY - 11 * Math.sin(a + 0.45),
     );
-    this.scene.tweens.add({
-      targets: g,
-      alpha: 0,
-      duration: 300,
-      onComplete: () => {
-        g.clear();
-        g.setAlpha(1);
-      },
-    });
   }
 }
