@@ -78,12 +78,16 @@ export const STAR_POP_IN_MS = 280; // длительность появлени�
 export const STAR_PULSE_MS = 260; // длительность пульса при повторном касании, мс
 export const STAR_PULSE_SCALE = 1.3; // масштаб в пике пульса
 // Мелкие звёзды: плитки экрана выбора уровней и экран победы
-export const STAR_TILE_RADIUS = 9; // px — радиус звезды
-export const STAR_TILE_INNER_RADIUS = 4; // px — впадина между лучами
-export const STAR_TILE_SPACING = 26; // px — шаг между звёздами в ряду
+export const STAR_TILE_RADIUS = 12; // px — радиус звезды
+export const STAR_TILE_INNER_RADIUS = 5; // px — впадина между лучами
+export const STAR_TILE_SPACING = 34; // px — шаг между звёздами в ряду
 export const STAR_TILE_UNCOLLECTED_COLOR = 0x94a3b8; // обводка несобранной (slate-400)
+// Полупрозрачная подложка под собранной звездой — чтобы ряд читался поверх игрового поля.
+export const STAR_TILE_BG_COLOR = 0x0f172a; // цвет подложки (slate-900, как фон заголовков)
+export const STAR_TILE_BG_ALPHA = 0.55; // прозрачность подложки
+export const STAR_TILE_BG_PADDING = 4; // px — подложка шире звезды на этот отступ
 export const WIN_STARS_OFFSET_Y = 46; // px — отступ ряда звёзд победного экрана от заголовка
-export const WIN_STARS_TEXT_OFFSET_Y = 22; // px — отступ текста «N/M» под рядом звёзд
+export const WIN_STARS_TEXT_OFFSET_Y = 28; // px — отступ текста «N/M» под рядом звёзд
 
 // Типы уровней (ControlZone, HoopConfig, WallConfig, LevelConfig) и массив LEVELS
 // живут в levels.ts — здесь только числовые параметры физики и геометрии.

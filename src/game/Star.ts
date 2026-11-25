@@ -39,6 +39,9 @@ import {
   STAR_TILE_INNER_RADIUS,
   STAR_TILE_SPACING,
   STAR_TILE_UNCOLLECTED_COLOR,
+  STAR_TILE_BG_COLOR,
+  STAR_TILE_BG_ALPHA,
+  STAR_TILE_BG_PADDING,
   WIN_STARS_OFFSET_Y,
 } from './constants';
 
@@ -207,15 +210,21 @@ export function drawStarRow(
 ): void {
   const startX = cx - ((count - 1) * STAR_TILE_SPACING) / 2;
   for (let j = 0; j < count; j++) {
+    const starX = startX + j * STAR_TILE_SPACING;
+    const collected = (mask & (1 << j)) !== 0;
+    if (collected) {
+      // Полупрозрачная подложка под собранной звездой: ряд читается поверх игрового поля.
+      scene.add.circle(starX, cy, STAR_TILE_RADIUS + STAR_TILE_BG_PADDING, STAR_TILE_BG_COLOR, STAR_TILE_BG_ALPHA);
+    }
     const star = scene.add.star(
-      startX + j * STAR_TILE_SPACING,
+      starX,
       cy,
       STAR_POINTS,
       STAR_TILE_INNER_RADIUS,
       STAR_TILE_RADIUS,
       0xffffff,
     );
-    if ((mask & (1 << j)) !== 0) {
+    if (collected) {
       star.setFillStyle(STAR_FILL_COLOR, 1);
       star.setStrokeStyle(2, STAR_EDGE_COLOR, 1);
     } else {
