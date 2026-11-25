@@ -19,6 +19,7 @@ import { loadSkinId, loadLevelStars, markLevelCompleted, recordStars, setLastLev
 import { MenuButton } from './ui/MenuButton';
 import { Star, countStars, drawStarRow } from './Star';
 import { WIN_STARS_OFFSET_Y, WIN_STARS_TEXT_OFFSET_Y } from './constants';
+import { track } from './analytics';
 
 // --- Финальный экран уровня (см. createWinScreen) ---
 const WIN_TITLE_OFFSET_Y = -150;
@@ -26,6 +27,12 @@ const WIN_BUTTONS_START_OFFSET_Y = -20;
 const WIN_BUTTON_STEP = 70;
 const WIN_BUTTON_WIDTH = 280;
 const WIN_BUTTON_HEIGHT = 56;
+
+// --- Аналитика: цель «не слишком много бросков» (см. onScore) ---
+// Идентификатор цели задан в интерфейсе Метрики (ID 697142553).
+const GOAL_ENOUGH_THROWS = 'enaugh throws';
+// Победа с числом бросков не больше этого — «уровень дался без мучений».
+const MAX_THROWS_FOR_GOAL = 15;
 
 // --- Оверлей паузы (см. togglePause) ---
 const PAUSE_BUTTON_WIDTH = 240;
@@ -47,6 +54,8 @@ export class GameScene extends Phaser.Scene {
   private levelIndex = 0;
   private won = false;
   private paused = false;
+  /** Число реальных бросков на текущей попытке уровня (сбрасывается в create). */
+  private throws = 0;
   private overlayText!: Phaser.GameObjects.Text;
   private pauseMenuButton: MenuButton | null = null;
 
@@ -71,6 +80,7 @@ export class GameScene extends Phaser.Scene {
     // сбрасываем флаги, иначе после победы и повторного запуска мяч не засчитывается в кольцо.
     this.won = false;
     this.paused = false;
+    this.throws = 0;
     const level = LEVELS[this.levelIndex];
 
     this.matter.world.setGravity(0, GRAVITY_Y);
@@ -182,6 +192,7 @@ export class GameScene extends Phaser.Scene {
       level.zone,
       undefined,
       () => this.resetPendingStars(),
+      () => { this.throws += 1; },
     );
   }
 
@@ -255,6 +266,10 @@ export class GameScene extends Phaser.Scene {
     // Прогресс: уровень пройден, следующий открыт, «Играть» в меню откроет следующий
     // (markLevelCompleted сам выставляет last = index + 1, см. storage.ts).
     markLevelCompleted(this.levelIndex);
+    // Цель «не слишком много бросков»: уровень пройден за разумное число попыток.
+    if (this.throws <= MAX_THROWS_FOR_GOAL) {
+      track(GOAL_ENOUGH_THROWS, { level: this.levelIndex + 1, throws: this.throws });
+    }
     this.won = true;
     // Мяч больше не захватывается — клики уходят кнопкам победного экрана.
     this.ball.setPaused(true);

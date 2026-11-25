@@ -2,11 +2,13 @@
  * Оверлей-заглушка настроек — запускается через scene.launch() поверх MenuScene.
  * Заголовок + неактивные строки-плейсхолдеры («скоро») с заделом под громкость
  * звука (тип Settings уже зафиксирован в storage.ts). Функциональных настроек нет.
+ * Внизу панели — версия игры и дата сборки.
  * Закрытие: клик по подложке, ✕ или Esc → scene.stop().
  */
 
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from './constants';
+import { GAME_VERSION, BUILD_DATE, formatBuildDate } from './version';
 
 const BACKDROP_COLOR = 0x020617;
 const BACKDROP_ALPHA = 0.65;
@@ -34,6 +36,12 @@ const SLIDER_ALPHA = 0.5;
 const CLOSE_TEXT = '✕';
 const CLOSE_OFFSET_X = 24;
 const CLOSE_OFFSET_Y = 24;
+
+// Подпись внизу панели: «Версия 0.1.0 · сборка 25.11.2026».
+const VERSION_OFFSET_Y = PANEL_HEIGHT / 2 - 24;
+const VERSION_FONT_SIZE = '13px';
+const VERSION_COLOR = '#64748b'; // slate-500 — не отвлекает от настроек
+const VERSION_SEPARATOR = ' · ';
 
 export class SettingsOverlayScene extends Phaser.Scene {
   constructor() {
@@ -65,6 +73,7 @@ export class SettingsOverlayScene extends Phaser.Scene {
 
     this.createSoundRow(cx, cy + ROW_OFFSET_Y);
     this.createCloseButton(cx, cy);
+    this.createVersionLabel(cx, cy);
 
     this.input.keyboard?.on('keydown-ESC', () => this.closeOverlay());
   }
@@ -93,6 +102,18 @@ export class SettingsOverlayScene extends Phaser.Scene {
         color: SOON_COLOR,
       })
       .setOrigin(1, 0.5);
+  }
+
+  /** Версия и дата сборки внизу панели — чтобы по скриншоту было видно, какой билд у игрока. */
+  private createVersionLabel(cx: number, cy: number): void {
+    const label = `Версия ${GAME_VERSION}${VERSION_SEPARATOR}сборка ${formatBuildDate(BUILD_DATE)}`;
+    this.add
+      .text(cx, cy + VERSION_OFFSET_Y, label, {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: VERSION_FONT_SIZE,
+        color: VERSION_COLOR,
+      })
+      .setOrigin(0.5, 0.5);
   }
 
   private createCloseButton(cx: number, cy: number): void {

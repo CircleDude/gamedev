@@ -97,6 +97,8 @@ export class Ball {
   private readonly grabGuard?: (x: number, y: number) => boolean;
   /** Опциональный callback захвата мяча рогаткой — натягивания резинки (см. конструктор). */
   private readonly onGrab?: () => void;
+  /** Опциональный callback фактического броска: мяч получил скорость (см. конструктор). */
+  private readonly onLaunch?: () => void;
   /** Текущий скин — резинка рисуется в его цветах. */
   private readonly skin: BallSkin;
   /** Кулак-спрайт: тот же depth, что у резинки, но добавлен после неё. */
@@ -144,6 +146,7 @@ export class Ball {
    * (вернуть false, чтобы клик не захватил мяч, например над кнопками меню).
    * onGrab — опциональный callback захвата мяча (начало натягивания резинки) —
    * используется, например, для сброса звёзд до броска.
+   * onLaunch — опциональный callback фактического броска (для счёта попыток).
    * Без аргументов поведение идентично прежнему.
    */
   constructor(
@@ -153,11 +156,13 @@ export class Ball {
     zone: ControlZone,
     grabGuard?: (x: number, y: number) => boolean,
     onGrab?: () => void,
+    onLaunch?: () => void,
   ) {
     this.scene = scene;
     this.zone = zone;
     this.grabGuard = grabGuard;
     this.onGrab = onGrab;
+    this.onLaunch = onLaunch;
 
     const skinId = (scene.registry.get('ballSkin') as string | undefined) ?? BALL_SKINS[0].id;
     this.skin = getBallSkin(skinId);
@@ -372,6 +377,8 @@ export class Ball {
       y: this.launchDir.y * speed * MATTER_VELOCITY_SCALE,
     });
     Matter.Body.setAngularVelocity(this.bodySprite.body, 0);
+    // Считаем именно реальные броски: отмена захвата и клики без оттяжки сюда не попадают.
+    this.onLaunch?.();
     // Резинка «ударила»: мяч сжимается той же логикой, что и при столкновении —
     // ось вдоль линии удара, сила от скорости (см. startSquash).
     const speedPxS = this.launchPower * MAX_LAUNCH_SPEED;
